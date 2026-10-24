@@ -1,13 +1,13 @@
-# <app>
+# pocus
 
 Instructions for every AI assistant working here (Claude Code reads this through `CLAUDE.md`).
-<One or two lines: what the app is, who it is for, where it is live, how it is deployed.>
+The POCUS teaching site: point-of-care ultrasound lectures, simulations and cases for anaesthesia trainees (synthetic cases only), live at https://pocus.anantf.com. Static pages in `pocus/` (videos stay in git), served by this repo's own Cloudflare Worker (`pocus`). Split out of the NTF anaesthesia site repo (`anantf-site`) on 24 Oct 2026; `anantf.com/pocus/` forwards here.
 
 ## Public here, private elsewhere
 
 Anything merged here is public. Keep only code, docs, general rules and **made-up** sample data. Never commit
 secrets, tokens, personal data, real names or patient details. Private notes belong in this repo's private pair
-(`<app>-private`, in the same organisation) and the shared notes repo; never copy anything from there into this repo,
+(`pocus-private`, in the same organisation) and the shared notes repo; never copy anything from there into this repo,
 a PR or an issue (neutral pointers like "ask the owner" are fine).
 
 ## Rules that bite
@@ -21,7 +21,7 @@ a PR or an issue (neutral pointers like "ask the owner" are fine).
 
 ## Checks before merging
 
-List the repo's check commands here (for example `node tools/check.mjs`) and keep `.github/workflows/checks.yml` in step.
+`node tools/check.mjs` (links and files exist, Worker settings, Worker tests), `python3 pocus/test/content.py` and `node pocus/test/model.test.cjs` (lecture content, media records, numerical models); `pocus/test/review.e2e.mjs` opens every lecture in a browser (CI runs it; see `checks.yml`). Keep `.github/workflows/checks.yml` in step.
 
 ## Working with the maintainers
 
