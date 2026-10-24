@@ -1,18 +1,8 @@
-# ntf-public-template
+# pocus
 
-Starting point for a new public NTF repo (one app or app group). Use **Use this template**, then follow the checklist.
+The POCUS teaching site: point-of-care ultrasound lectures, simulations and cases for anaesthesia trainees (synthetic cases only), live at https://pocus.anantf.com. Static pages in `pocus/` (videos stay in git), served by this repo's own Cloudflare Worker (`pocus`). Split out of the NTF anaesthesia site repo (`anantf-site`) on 24 Oct 2026; `anantf.com/pocus/` forwards here.
 
-## Checklist after creating the repo
-
-1. Replace `<app>` and the one-line description in `AGENTS.md`, `README.md`, `STATUS.md` and `NOTES.md`.
-2. Create the private pair `<app>-private` from `ntf-private-template` (when the app has notes or data).
-3. Add `wrangler.jsonc` (Worker name, custom domain `<app>.anantf.com`); the organisation secrets are used by `deploy.yml`.
-4. Add the repo to the shared hub's `hub/repo-map.md`.
-5. Delete this checklist from `README.md`.
-
-## What is here
-
-- `AGENTS.md`: rules for every assistant; `CLAUDE.md` points to it.
-- `.claude/settings.json` and `.claude/hooks/attach-notes.sh`: cloud sessions are told to attach the shared private notes repo first.
-- `.github/workflows/`: `checks.yml` (pull requests and main) and `deploy.yml` (Worker, organisation secrets, no Workers Builds).
-- `STATUS.md` and `NOTES.md`: current state and lasting decisions.
+- `pocus/`: the pages (hub, lectures, `media/` with attributions), `shared/`, `test/`, and the few site assets and fonts they need, all relative. See `pocus/README.md` for the lecture list and `pocus/REVIEW.md` for the review notes.
+- `worker/`: the Worker (`routes.js` picks the folder, `sites.js` serves it) with Node tests.
+- `tools/check.mjs`: repo checks. Run `node tools/check.mjs`.
+- Deploy: `wrangler deploy` (GitHub Actions `deploy.yml` when the organisation secrets exist, otherwise run by a maintainer). Never Workers Builds.
