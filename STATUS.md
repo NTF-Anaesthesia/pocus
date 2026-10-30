@@ -11,6 +11,7 @@
 
 ## Recently done
 - Repo created and the POCUS pages moved here.
+- 30 Oct 2026: Cases Part III (four described SCCM lunch cases, no clips) and 30-minute presenter plans on basics, cardiac LV, haemodynamics and cases; small text additions, no new media or thresholds.
 
 ## Decisions
 - 24 Oct 2026: one Worker per repo; the old `anantf.com/pocus/` redirects here. Videos stay in git (28 MB).

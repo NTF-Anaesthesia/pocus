@@ -51,3 +51,10 @@ body.pocus-course .scan-study .media-credit{font-size:12px;margin-top:10px;color
 @media(prefers-reduced-motion:reduce){body.pocus-course *,body.pocus-course *:before,body.pocus-course *:after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
 
 body.pocus-course [hidden]{display:none!important}
+
+/* Presenter plan: a collapsible "Teach it in 30 minutes" running order on a lecture's start or divider slide (30 Oct 2026). */
+.teach-plan{margin-top:16px}
+.teach-plan>summary{cursor:pointer;min-height:44px;padding-block:10px;color:#633d3c}
+.teach-plan table{margin-top:10px}
+.teach-plan .mini{margin-top:10px}
+.teach-plan th,.teach-plan td{min-width:0}

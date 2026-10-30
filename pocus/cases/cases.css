@@ -43,3 +43,8 @@
 .cs-flag{border-left-color:#a36a1c}
 @media(max-width:900px){.cs-grid-3{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:600px){.cs-pair,.cs-grid-3,.cs-grid-4,.cs-q .opts{grid-template-columns:minmax(0,1fr)}.cs-clip video,.cs-clip img{max-height:300px}.cs-q legend{font-size:21px}.cs-vignette{font-size:17px}.cs-index li{grid-template-columns:minmax(0,1fr);gap:2px}}
+/* Part III (described cases, 30 Oct 2026): compact callout for the three image traps. */
+.cs-traps{margin-top:20px}
+.cs-traps ul{margin:8px 0 0;padding-left:18px;font-size:16px}
+.cs-traps li{margin:4px 0}
+#take-home th,#take-home td{min-width:0}
