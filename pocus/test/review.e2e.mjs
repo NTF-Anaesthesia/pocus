@@ -146,9 +146,9 @@ try {
     await page.screenshot({path:`pocus-test-artifacts/haemodynamics-questions-${viewport.width}.png`});
    }
    if(slug==='cases'){
-    // Seven cases in two parts; every clip has a poster, preload none and no autoplay.
+    // Seven clip cases in two parts, four described cases in a third; every clip has a poster, preload none and no autoplay.
     const ids=await page.evaluate(()=>[...document.querySelectorAll('.slide')].map(s=>s.id));
-    assert.deepEqual(ids,['start','case-1','case-2','case-3','case-4','case-5','case-6','case-7','take-home','references']);
+    assert.deepEqual(ids,['start','case-1','case-2','case-3','case-4','case-5','case-6','case-7','part-3','case-8','case-9','case-10','case-11','take-home','references']);
     const vids=await page.evaluate(()=>[...document.querySelectorAll('video')].filter(v=>!v.poster||v.autoplay||v.preload!=='none'||!v.controls).length);
     assert.equal(vids,0,'cases videos: poster, controls, preload none, no autoplay');
     // Commit, reveal, try again.

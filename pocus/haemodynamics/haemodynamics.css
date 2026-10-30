@@ -38,3 +38,14 @@
 @media(max-width:900px){.hd-grid-3{grid-template-columns:repeat(2,minmax(0,1fr))}.hd-split,.hdq-grid{grid-template-columns:minmax(0,1fr);gap:16px}}
 @media(max-width:560px){.hd-pair,.hd-grid-3{grid-template-columns:minmax(0,1fr)}.hd-clip video,.hd-clip img{max-height:300px}.hdq legend{font-size:21px}}
 .inner.hd-after{padding-top:0!important;margin-top:0}
+.course-intro .teach-plan{border:1px solid #d7d2c8;padding:16px 20px}.course-intro .teach-plan .table-wrap{overflow:auto}.course-intro .teach-plan table{width:100%;font-size:14px}
+
+/* Lab sliders with readouts, and the PLR change calculator (30 Oct 2026). */
+.haemo-lab input[type=range]{width:100%;grid-column:1/-1;min-height:44px;accent-color:#633d3c}
+.haemo-lab label{display:grid;gap:4px;align-content:start}
+.plr-calc{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 0 4px}
+.plr-calc label{display:grid;gap:4px;font-size:14px;line-height:1.5}
+.plr-calc input{width:100%;background:#fffdf8;border:1px solid #a59d91;border-radius:0;color:#272722;padding:9px;min-height:44px;font:inherit}
+.plr-calc .status{grid-column:1/-1;margin:4px 0 0}
+.plr-calc .number{font-family:'NTF Mono',monospace;font-size:18px}
+@media(max-width:440px){.plr-calc{grid-template-columns:1fr}}
