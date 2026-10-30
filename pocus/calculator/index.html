@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en-GB" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#f7f5ef">
+<meta name="color-scheme" content="light">
+<title>POCUS calculator — NTF Anaesthesia</title>
+<meta name="description" content="Bedside POCUS arithmetic: EF from FS, FAC or volumes; stroke volume and cardiac output from LVOT VTI; IVC collapsibility and distensibility.">
+<link rel="icon" href="../ana-ntf-monogram.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/navigation.css?v=20261008">
+<link rel="stylesheet" href="../assets/site-shell.css?v=20261008">
+<link rel="stylesheet" href="../assets/header-nav.css?v=20261008">
+<link rel="stylesheet" href="calculator.css?v=20261030">
+<script defer src="../assets/navigation.js?v=20261008"></script>
+<script defer src="formulas.js?v=20261030"></script>
+<script defer src="calculator.js?v=20261030"></script>
+</head>
+<body>
+<a class="collection-skip" href="#main">Skip to content</a>
+<header class="ntf-header"><div class="ntf-header-inner"><a class="ntf-logo" href="https://anantf.com/" aria-label="NTF Anaesthesia home"><img src="../ana-ntf-logo.svg?v=clean" alt="NTF Anaesthesia" width="229" height="120"></a><button class="ntf-mobile-toggle" type="button" aria-expanded="false" aria-controls="ntf-main-nav">Menu <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" aria-hidden="true"><path d="M3 6h14M3 10h14M3 14h14"/></svg></button><nav class="ntf-nav" id="ntf-main-nav" aria-label="Main navigation"><a href="https://airway.anantf.com/airway.html">Airway</a><a href="https://regional.anantf.com/">Regional Anaesthesia</a><a href="../" aria-current="page">POCUS</a><a href="https://anantf.com/eeg/">EEG</a><a href="https://exams.anantf.com/">Exam Prep</a></nav><a class="ntf-contact" href="mailto:contact@anantf.com" aria-label="Email NTF Anaesthesia" title="Email NTF Anaesthesia"><svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 6 9 7 9-7"/></svg></a></div></header>
+
+<main id="main" class="calc">
+ <div class="calc-head">
+  <p class="calc-kicker"><a href="../">POCUS</a> · Quick reference</p>
+  <h1>Bedside calculator</h1>
+  <p class="calc-lead">Type a value or drag its slider. Results update as you go.</p>
+ </div>
+
+ <div class="calc-tabs" role="tablist" aria-label="Calculators">
+  <button type="button" role="tab" id="tab-lv" aria-controls="lv" aria-selected="true">LV function</button>
+  <button type="button" role="tab" id="tab-flow" aria-controls="flow" aria-selected="false" tabindex="-1">Flow</button>
+  <button type="button" role="tab" id="tab-ivc" aria-controls="ivc" aria-selected="false" tabindex="-1">IVC</button>
+ </div>
+
+ <noscript><p class="calc-note">The calculator needs JavaScript. The formulas are listed under each heading below.</p></noscript>
+
+ <!-- LV function -->
+ <section class="calc-panel" id="lv" role="tabpanel" aria-labelledby="tab-lv">
+  <h2 class="sr-only">LV function</h2>
+  <div class="calc-controls">
+   <fieldset class="seg" data-name="lvMethod"><legend>Method</legend>
+    <label><input type="radio" name="lvMethod" value="fs" checked><span>FS · M-mode</span></label>
+    <label><input type="radio" name="lvMethod" value="fac"><span>FAC · PSAX</span></label>
+    <label><input type="radio" name="lvMethod" value="vol"><span>Volumes</span></label>
+   </fieldset>
+   <fieldset class="seg seg-small" data-name="sex"><legend>Sex (sets the reference ranges)</legend>
+    <label><input type="radio" name="sex" value="m" checked><span>Male</span></label>
+    <label><input type="radio" name="sex" value="f"><span>Female</span></label>
+   </fieldset>
+  </div>
+  <div class="calc-out" aria-live="polite" id="lvOut"></div>
+  <div class="calc-fields" data-method="fs" data-fields="lvidd lvids"></div>
+  <div class="calc-fields" data-method="fac" data-fields="eda esa" hidden></div>
+  <div class="calc-fields" data-method="vol" data-fields="edv esv" hidden></div>
+  <div class="calc-controls" data-method="fs fac">
+   <label class="calc-select" for="apex">Apex (Quinones correction)
+    <select id="apex">
+     <option value="normal">Normal</option>
+     <option value="hypokinetic">Hypokinetic</option>
+     <option value="akinetic">Akinetic</option>
+     <option value="dyskinetic">Dyskinetic</option>
+     <option value="aneurysm">Aneurysmal</option>
+    </select>
+   </label>
+  </div>
+  <div class="calc-notes" id="lvNotes"></div>
+  <details class="calc-ref">
+   <summary>Formulas and limits</summary>
+   <dl>
+    <dt>Fractional shortening</dt><dd>FS = (LVIDd − LVIDs) / LVIDd × 100. PLAX M-mode just beyond the leaflet tips, perpendicular to the long axis. ≥30% normal, &lt;20% severely impaired (older teaching values).</dd>
+    <dt>Teichholz</dt><dd>Volume = 7d³ / (2.4 + d), d in cm. EF = (EDV − ESV) / EDV. Assumes a symmetric, spheroidal LV; ASE/EACVI 2015 no longer recommends EF from linear dimensions.</dd>
+    <dt>Quinones</dt><dd>EF = S + (100 − S) × K, where S is the short-axis change (%ΔD² from diameters, or FAC from areas) and K is the apical term: normal 15%, hypokinetic 5%, akinetic 0, dyskinetic −5%, aneurysmal −10% (Quinones 1981). Using FAC for S is an estimate.</dd>
+    <dt>Fractional area change</dt><dd>FAC = (EDA − ESA) / EDA × 100, PSAX at the papillary level. No normal LV FAC cut-off is quoted: none could be verified. Do not borrow the RV FAC reference (&gt;35%).</dd>
+    <dt>Volumes (Simpson's biplane)</dt><dd>EF = (EDV − ESV) / EDV × 100; SV = EDV − ESV. Biplane discs is the recommended 2D method. A foreshortened apex underestimates volumes.</dd>
+    <dt>EF categories (Lang 2015)</dt><dd>Normal 52–72% (male), 54–74% (female); mildly abnormal 41–51% (male), 41–53% (female); moderately abnormal 30–40%; severely abnormal &lt;30%. LVIDd normal 4.2–5.8 cm (male), 3.8–5.2 cm (female).</dd>
+   </dl>
+   <p><a href="../cardiac/#lv-linear">Linear measurements lecture →</a> · <a href="../cardiac/#lv-area-volume">FAC and Simpson's lecture →</a></p>
+  </details>
+ </section>
+
+ <!-- Flow -->
+ <section class="calc-panel" id="flow" role="tabpanel" aria-labelledby="tab-flow" hidden>
+  <h2 class="sr-only">Flow</h2>
+  <div class="calc-out" aria-live="polite" id="flowOut"></div>
+  <div class="calc-fields" data-fields="lvot vti hr"></div>
+  <details class="calc-extra" id="bsaBox">
+   <summary>Index to body surface area</summary>
+   <div class="calc-fields" data-fields="height weight"></div>
+  </details>
+  <details class="calc-extra" id="plrBox">
+   <summary>Passive leg raise or fluid challenge</summary>
+   <div class="calc-fields" data-fields="vti2"></div>
+  </details>
+  <div class="calc-notes" id="flowNotes"></div>
+  <details class="calc-ref">
+   <summary>Formulas and limits</summary>
+   <dl>
+    <dt>LVOT area</dt><dd>CSA = π × (d / 2)² ≈ 0.785 × d². Diameter in PLAX, mid-systole, inner edge to inner edge, at the level of the PW sample. The diameter is squared: a 1 mm error in a 20 mm LVOT changes SV by about 10%.</dd>
+    <dt>Stroke volume and output</dt><dd>SV = CSA × VTI. CO = SV × HR / 1000. Typical adult SV 60–100 mL; CI 2.5–4.0 L/min/m².</dd>
+    <dt>VTI</dt><dd>PW Doppler in the LVOT from A5C, about 0.5 cm below the valve, aligned with flow. Commonly quoted normal about 18–22 cm. VTI &lt;16 cm marked low stroke volume in Vignon 2017.</dd>
+    <dt>Passive leg raise</dt><dd>Change = (VTI after − VTI before) / VTI before × 100. A rise ≥10–15% suggests fluid responsiveness; the Flow and fluids lecture uses ≥12%. Use the same diameter both times, so the change in VTI is the change in SV.</dd>
+    <dt>Body surface area</dt><dd>Mosteller: √(height cm × weight kg / 3600).</dd>
+   </dl>
+   <p><a href="../haemodynamics/">Flow and fluids lecture →</a></p>
+  </details>
+ </section>
+
+ <!-- IVC -->
+ <section class="calc-panel" id="ivc" role="tabpanel" aria-labelledby="tab-ivc" hidden>
+  <h2 class="sr-only">IVC</h2>
+  <div class="calc-controls">
+   <fieldset class="seg" data-name="breathing"><legend>Breathing</legend>
+    <label><input type="radio" name="breathing" value="spont" checked><span>Spontaneous</span></label>
+    <label><input type="radio" name="breathing" value="vent"><span>Ventilated, passive</span></label>
+   </fieldset>
+  </div>
+  <div class="calc-out" aria-live="polite" id="ivcOut"></div>
+  <div class="calc-fields" data-fields="ivcmax ivcmin"></div>
+  <div class="calc-notes" id="ivcNotes"></div>
+  <details class="calc-ref">
+   <summary>Formulas and limits</summary>
+   <dl>
+    <dt>Collapsibility index</dt><dd>(max − min) / max × 100. Spontaneous breathing: the IVC narrows in inspiration. About 40% or more: probably fluid-responsive, but a weak predictor.</dd>
+    <dt>Estimated RA pressure (ASE)</dt><dd>≤2.1 cm and collapses &gt;50% with a sniff: 3 mmHg (0–5). &gt;2.1 cm and collapses &lt;50%: 15 mmHg (10–20). Anything else: 8 mmHg (5–10). Not valid on positive-pressure ventilation.</dd>
+    <dt>Distensibility index (Barbier)</dt><dd>(max − min) / min × 100. Threshold &gt;18%.</dd>
+    <dt>Variability (Feissel)</dt><dd>(max − min) / mean × 100. Threshold &gt;12%.</dd>
+    <dt>When the ventilated indices apply</dt><dd>Both studies used intubated patients with no respiratory effort and tidal volume &gt;8 mL/kg predicted body weight. Raised abdominal pressure, RV failure, arrhythmia and spontaneous effort make them unreliable. Measure 1–2 cm from the RA junction, in the long axis, without the probe pressing.</dd>
+   </dl>
+   <p><a href="../haemodynamics/">Flow and fluids lecture: IVC indices and pitfalls →</a></p>
+  </details>
+ </section>
+
+ <p class="calc-disclaimer">Teaching aid. Check every number against your machine and the whole patient; this is not clinical advice.</p>
+ <p class="calc-actions"><button type="button" class="calc-reset" id="reset">Reset all values</button></p>
+</main>
+
+<footer class="ntf-footer"><div class="ntf-footer-inner"><div class="ntf-footer-identity"><span class="ntf-copyright">© 2026 NTF Anaesthesia. All rights reserved unless otherwise stated.</span></div></div></footer>
+</body>
+</html>

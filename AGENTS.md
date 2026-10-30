@@ -21,7 +21,7 @@ a PR or an issue (neutral pointers like "ask the owner" are fine).
 
 ## Checks before merging
 
-`node tools/check.mjs` (links and files exist, Worker settings, Worker tests), `python3 pocus/test/content.py` and `node pocus/test/model.test.cjs` (lecture content, media records, numerical models); `pocus/test/review.e2e.mjs` opens every lecture in a browser (CI runs it; see `checks.yml`). Keep `.github/workflows/checks.yml` in step.
+`node tools/check.mjs` (links and files exist, Worker settings, Worker tests), `python3 pocus/test/content.py`, `node pocus/test/model.test.cjs` and `node pocus/test/calculator.test.cjs` (lecture content, media records, numerical models, calculator formulas); `pocus/test/review.e2e.mjs` opens every lecture in a browser (CI runs it; see `checks.yml`). Keep `.github/workflows/checks.yml` in step.
 
 ## Working with the maintainers
 
