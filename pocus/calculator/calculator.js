@@ -8,8 +8,8 @@
     lvids: ['LVIDs', 'end-systole', 'cm', 1, 7, .05, 3.2],
     eda: ['EDA', 'end-diastolic area', 'cm²', 4, 50, .5, 20],
     esa: ['ESA', 'end-systolic area', 'cm²', 2, 45, .5, 11],
-    edv: ['EDV', 'end-diastolic volume', 'mL', 20, 400, 1, 120],
-    esv: ['ESV', 'end-systolic volume', 'mL', 5, 350, 1, 50],
+    edv: ['EDV', 'end-diastole', 'mL', 20, 400, 1, 120],
+    esv: ['ESV', 'end-systole', 'mL', 5, 350, 1, 50],
     lvot: ['LVOT diameter', 'PLAX, mid-systole', 'cm', 1.4, 3, .05, 2],
     vti: ['LVOT VTI', 'A5C, PW Doppler', 'cm', 4, 40, .5, 20],
     hr: ['Heart rate', '', '/min', 30, 180, 1, 80],
@@ -161,13 +161,17 @@
     } else {
       const miss = bad('edv', 'esv');
       if (miss) return tiles(out, [], `Enter ${FIELDS[miss][0]}.`), notes(n, []);
+      const bi = choice('planes') !== 'a4c';
+      $('#h-edv').textContent = bi ? 'end-diastole, biplane (A4C + A2C)' : 'end-diastole, A4C only';
+      $('#h-esv').textContent = bi ? 'end-systole, biplane (A4C + A2C)' : 'end-systole, A4C only';
       const r = C.volumes(values.edv, values.esv);
       if (!r) return tiles(out, [], 'ESV must be smaller than EDV.'), notes(n, []);
       tiles(out, [
-        ['EF', fmt(r.ef, 0), '%', cat(r.ef), true],
+        [bi ? 'EF, biplane' : 'EF, A4C only', fmt(r.ef, 0), '%', cat(r.ef), true],
         ['Stroke volume', fmt(r.sv), 'mL', 'EDV − ESV'],
       ]);
       notes(n, [`Lang 2015, ${sexWord}: normal ${sex === 'f' ? '54–74' : '52–72'}%, mildly abnormal 41–${sex === 'f' ? 53 : 51}%, moderately abnormal 30–40%, severely abnormal <30%.`]);
+      if (!bi) n.insertAdjacentHTML('afterbegin', '<p>Single-plane EF: anterior and inferior walls are not measured. Add A2C for a biplane EF if you can.</p>');
     }
   }
 
