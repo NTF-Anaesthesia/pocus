@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en-GB"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
+<title>Probe simulator (dev) — POCUS</title>
+<style>
+body{margin:0;background:#f7f5ef;color:#272722;font:15px/1.5 Inter,Arial,sans-serif}
+main{max-width:1100px;margin:auto;padding:18px}
+h1{font:400 26px Georgia,serif;margin:0 0 10px}
+.row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:18px;align-items:start}
+@media(max-width:800px){.row{grid-template-columns:1fr}}
+canvas{display:block;max-width:100%;height:auto}
+.us{background:#000;border:1px solid #23292f}
+.chest{border:1px solid #c7bdb0;touch-action:none}
+.ctrls{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;margin-top:10px;font-size:13px}
+.ctrls label{display:grid;grid-template-columns:70px 1fr 48px;gap:8px;align-items:center}
+.ctrls input[type=range]{width:100%;min-height:36px;accent-color:#633d3c}
+.btns{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+button{font:13px Inter,Arial,sans-serif;padding:8px 12px;border:1px solid #c7bdb0;background:#fffdf8;cursor:pointer;min-height:40px}
+button[aria-pressed=true]{background:#633d3c;color:#fff}
+.status{font:13px ui-monospace,monospace;background:#fffdf8;border:1px solid #d7d2c8;padding:8px 10px;margin-top:8px;min-height:40px}
+.bar{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:6px}
+.bar span{height:8px;background:#d7d2c8}
+.bar span.ok{background:#2f6b4f}.bar span.off{background:#b45309}
+.mini{font-size:12px;color:#55534e}
+</style></head>
+<body><main>
+<h1>Probe simulator · development page</h1>
+<p class="mini">Not linked from the site. Drag the probe; twist with two fingers or the wheel; arrow keys slide, Q/E rotate, Alt+arrows tilt and rock. The ultrasound image is synthetic: a 3D model sliced along the probe's plane.</p>
+<div class="row">
+ <div>
+  <canvas id="chest" class="chest"></canvas>
+  <div class="ctrls">
+   <label>Rotate<input id="rot" type="range" min="0" max="360" step="1"><output id="rotO"></output></label>
+   <label>Tilt<input id="tilt" type="range" min="-45" max="70" step="1"><output id="tiltO"></output></label>
+   <label>Rock<input id="rock" type="range" min="-35" max="35" step="1"><output id="rockO"></output></label>
+   <label>Depth<input id="depth" type="range" min="6" max="22" step="1"><output id="depthO"></output></label>
+   <label>Gain<input id="gain" type="range" min="0.5" max="1.8" step="0.05"><output id="gainO"></output></label>
+   <label>Breath<input id="breath" type="range" min="0" max="1" step="0.01" value="0"><output id="breathO"></output></label>
+   <label>Effusion<input id="effusion" type="range" min="0" max="2.5" step="0.1" value="0"><output id="effusionO"></output></label>
+   <label>RV size<input id="rvdil" type="range" min="0" max="1" step="0.05" value="0"><output id="rvdilO"></output></label>
+   <label>LV EF<input id="lvef" type="range" min="0.15" max="0.8" step="0.05" value="0.6"><output id="lvefO"></output></label>
+  </div>
+  <div class="btns" id="targets"></div>
+  <div class="btns"><button id="pause" aria-pressed="false">Pause</button><button id="ribs" aria-pressed="true">Ribs</button><button id="hint">Hint</button><button id="random">Random start</button></div>
+ </div>
+ <div>
+  <canvas id="us" class="us"></canvas>
+  <div class="bar" id="bar"><span></span><span></span><span></span><span></span></div>
+  <div class="status" id="status"></div>
+ </div>
+</div>
+</main>
+<script src="sim.js"></script>
+<script src="probe.js"></script>
+<script>
+(() => {
+ const q = new URLSearchParams(location.search);
+ const { SliceRenderer, TARGETS, score } = window.ProbeSim;
+ const usCanvas = document.getElementById('us');
+ const R = new SliceRenderer(usCanvas, { w: Number(q.get('w') || 560), h: Number(q.get('h') || 420), dpr: Number(q.get('dpr') || 1.5) });
+ if (!R.ok) { document.getElementById('status').textContent = 'WebGL2 is not available in this browser.'; }
+ let target = TARGETS[q.get('pose')] ? q.get('pose') : 'plax';
+ const t0 = TARGETS[target];
+ const pose0 = { x: t0.x, y: t0.y, rot: t0.rot, tilt: t0.tilt, rock: t0.rock };
+ for (const k of ['x', 'y', 'rot', 'tilt', 'rock']) if (q.has(k)) pose0[k] = Number(q.get(k));
+ R.params.depth = t0.depth;
+ for (const k of ['depth', 'gain', 'effusion', 'rvdil', 'lvef', 'breath']) if (q.has(k)) R.params[k] = Number(q.get(k));
+ if (q.has('debug')) R.params.debug = Number(q.get('debug'));
+ const panel = new window.ProbePanel(document.getElementById('chest'), { w: 400, h: 300, pose: pose0, onChange: () => sync() });
+ let paused = q.has('phase'), phase = Number(q.get('phase') || 0.1), tStart = performance.now();
+ const $ = id => document.getElementById(id);
+ const sliders = { rot: 'rot', tilt: 'tilt', rock: 'rock' };
+ function sync() {
+  for (const k in sliders) { $(k).value = panel.pose[k]; $(k + 'O').textContent = Math.round(panel.pose[k]) + '°'; }
+  for (const k of ['depth', 'gain', 'effusion', 'rvdil', 'lvef', 'breath']) { $(k).value = R.params[k]; $(k + 'O').textContent = R.params[k]; }
+  const s = score(panel.pose, TARGETS[target]);
+  const spans = $('bar').children; s.parts.forEach((p, i) => { spans[i].className = p.e <= 1 ? 'ok' : 'off'; spans[i].title = p.k; });
+  $('status').textContent = `${TARGETS[target].label}: ${s.onTarget ? 'on target' : 'off target'} · window ${s.parts[0].e.toFixed(1)} plane ${s.parts[1].e.toFixed(1)} tilt ${s.parts[2].e.toFixed(1)} rock ${s.parts[3].e.toFixed(1)}`;
+ }
+ for (const k in sliders) $(k).addEventListener('input', () => panel.set({ [k]: Number($(k).value) }));
+ for (const k of ['depth', 'gain', 'effusion', 'rvdil', 'lvef', 'breath']) $(k).addEventListener('input', () => { R.params[k] = Number($(k).value); sync(); });
+ const tb = $('targets'); for (const k in TARGETS) { const b = document.createElement('button'); b.textContent = TARGETS[k].label; b.setAttribute('aria-pressed', String(k === target)); b.addEventListener('click', () => { target = k; const t = TARGETS[k]; R.params.depth = t.depth; panel.set({ x: t.x, y: t.y, rot: t.rot, tilt: t.tilt, rock: t.rock }); [...tb.children].forEach(c => c.setAttribute('aria-pressed', String(c === b))); }); tb.append(b); }
+ $('pause').addEventListener('click', () => { paused = !paused; $('pause').setAttribute('aria-pressed', String(paused)); });
+ $('ribs').addEventListener('click', () => { panel.showRibs = !panel.showRibs; $('ribs').setAttribute('aria-pressed', String(panel.showRibs)); panel.draw(); });
+ $('hint').addEventListener('click', () => { $('status').textContent = score(panel.pose, TARGETS[target]).hint + ' ' + TARGETS[target].hint; });
+ $('random').addEventListener('click', () => { const t = TARGETS[target]; panel.set({ x: t.x + (Math.random() - .5) * 6, y: t.y + (Math.random() - .5) * 6, rot: t.rot + (Math.random() - .5) * 90, tilt: t.tilt + (Math.random() - .5) * 30, rock: t.rock + (Math.random() - .5) * 30 }); });
+ let frames = 0, fpsAt = performance.now(); window.__fps = 0;
+ function frame(now) {
+  const t = (now - tStart) / 1000; frames++; if (now - fpsAt > 1000) { window.__fps = frames * 1000 / (now - fpsAt); frames = 0; fpsAt = now; }
+  if (!paused) phase = (t * R.params.hr / 60) % 1;
+  R.draw(panel.pose, phase, t, R.params.breath);
+  if (!q.has('phase') || !paused) requestAnimationFrame(frame); else { window.__rendered = true; }
+ }
+ sync(); panel.draw(); requestAnimationFrame(frame);
+ window.__sim = { R, panel, get phase() { return phase; } };
+})();
+</script>
+</body></html>
