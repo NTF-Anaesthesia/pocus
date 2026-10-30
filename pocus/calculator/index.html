@@ -12,10 +12,10 @@
 <link rel="stylesheet" href="../assets/navigation.css?v=20261008">
 <link rel="stylesheet" href="../assets/site-shell.css?v=20261008">
 <link rel="stylesheet" href="../assets/header-nav.css?v=20261008">
-<link rel="stylesheet" href="calculator.css?v=20261030">
+<link rel="stylesheet" href="calculator.css?v=20261031">
 <script defer src="../assets/navigation.js?v=20261008"></script>
-<script defer src="formulas.js?v=20261030"></script>
-<script defer src="calculator.js?v=20261030"></script>
+<script defer src="formulas.js?v=20261031"></script>
+<script defer src="calculator.js?v=20261031"></script>
 </head>
 <body>
 <a class="collection-skip" href="#main">Skip to content</a>
@@ -43,17 +43,41 @@
    <fieldset class="seg" data-name="lvMethod"><legend>Method</legend>
     <label><input type="radio" name="lvMethod" value="fs" checked><span>FS · M-mode</span></label>
     <label><input type="radio" name="lvMethod" value="fac"><span>FAC · PSAX</span></label>
-    <label><input type="radio" name="lvMethod" value="vol"><span>Volumes</span></label>
+    <label><input type="radio" name="lvMethod" value="vol"><span>Simpson's</span></label>
    </fieldset>
    <fieldset class="seg seg-small" data-name="sex"><legend>Sex (sets the reference ranges)</legend>
     <label><input type="radio" name="sex" value="m" checked><span>Male</span></label>
     <label><input type="radio" name="sex" value="f"><span>Female</span></label>
    </fieldset>
   </div>
+  <div class="calc-controls" data-method="vol" hidden>
+   <fieldset class="seg" data-name="planes"><legend>Planes traced</legend>
+    <label><input type="radio" name="planes" value="bi" checked><span>Biplane · A4C + A2C</span></label>
+    <label><input type="radio" name="planes" value="a4c"><span>A4C only</span></label>
+   </fieldset>
+  </div>
   <div class="calc-out" aria-live="polite" id="lvOut"></div>
   <div class="calc-fields" data-method="fs" data-fields="lvidd lvids"></div>
   <div class="calc-fields" data-method="fac" data-fields="eda esa" hidden></div>
   <div class="calc-fields" data-method="vol" data-fields="edv esv" hidden></div>
+  <aside class="calc-keypoints" data-method="vol" aria-labelledby="kp-title" hidden>
+   <h3 id="kp-title">Simpson's biplane: get the number right</h3>
+   <ol>
+    <li><b>Two planes.</b> Trace A4C <em>and</em> A2C at end-diastole and end-systole. The machine builds each disc from both views; enter the biplane EDV and ESV it reports. Averaging two single-plane EFs is not the same.</li>
+    <li><b>Right frames.</b> End-diastole: the frame after mitral closure, or the largest cavity (QRS onset). End-systole: the frame before mitral opening, or the smallest cavity.</li>
+    <li><b>True apex.</b> Maximise LV length and check the apex does not move towards the base in systole. The two lengths should agree within about 10%. Foreshortening underestimates volumes. TTE: left lateral, one space lower; TOE: ME four- and two-chamber, retroflex.</li>
+    <li><b>Trace the inner border.</b> Blood–compacted myocardium interface; papillary muscles and trabeculations stay inside the cavity. Close the base with a straight line between the mitral hinge points.</li>
+    <li><b>Can't see the border?</b> If two or more contiguous segments are missing, use contrast or report a visual estimate.</li>
+    <li><b>Irregular rhythm.</b> In AF or with ectopics, average several beats.</li>
+   </ol>
+   <h3>Caveats</h3>
+   <ul>
+    <li><b>A4C only</b> assumes the anterior and inferior walls move like the septum and lateral wall, so it misses their regional abnormalities. Use it only when A2C cannot be obtained, and say so.</li>
+    <li>Echo volumes run smaller than CMR. Compare with echo norms (Lang 2015): EDV index 34–74 mL/m² (male), 29–61 (female); ESV index 11–31 (male), 8–24 (female).</li>
+    <li>EF depends on load: inotropes, vasopressors and significant mitral regurgitation change it, and a normal EF can hide poor forward flow.</li>
+    <li>For serial scans, keep the same method, views and ideally the same operator.</li>
+   </ul>
+  </aside>
   <div class="calc-controls" data-method="fs fac">
    <label class="calc-select" for="apex">Apex (Quinones correction)
     <select id="apex">
@@ -73,7 +97,7 @@
     <dt>Teichholz</dt><dd>Volume = 7d³ / (2.4 + d), d in cm. EF = (EDV − ESV) / EDV. Assumes a symmetric, spheroidal LV; ASE/EACVI 2015 no longer recommends EF from linear dimensions.</dd>
     <dt>Quinones</dt><dd>EF = S + (100 − S) × K, where S is the short-axis change (%ΔD² from diameters, or FAC from areas) and K is the apical term: normal 15%, hypokinetic 5%, akinetic 0, dyskinetic −5%, aneurysmal −10% (Quinones 1981). Using FAC for S is an estimate.</dd>
     <dt>Fractional area change</dt><dd>FAC = (EDA − ESA) / EDA × 100, PSAX at the papillary level. No normal LV FAC cut-off is quoted: none could be verified. Do not borrow the RV FAC reference (&gt;35%).</dd>
-    <dt>Volumes (Simpson's biplane)</dt><dd>EF = (EDV − ESV) / EDV × 100; SV = EDV − ESV. Biplane discs is the recommended 2D method. A foreshortened apex underestimates volumes.</dd>
+    <dt>Volumes (Simpson's, method of discs)</dt><dd>EF = (EDV − ESV) / EDV × 100; SV = EDV − ESV. Biplane = A4C plus A2C, the recommended 2D method (ASE/EACVI 2015). A4C alone is single-plane (monoplane) Simpson's. A foreshortened apex underestimates volumes.</dd>
     <dt>EF categories (Lang 2015)</dt><dd>Normal 52–72% (male), 54–74% (female); mildly abnormal 41–51% (male), 41–53% (female); moderately abnormal 30–40%; severely abnormal &lt;30%. LVIDd normal 4.2–5.8 cm (male), 3.8–5.2 cm (female).</dd>
    </dl>
    <p><a href="../cardiac/#lv-linear">Linear measurements lecture →</a> · <a href="../cardiac/#lv-area-volume">FAC and Simpson's lecture →</a></p>

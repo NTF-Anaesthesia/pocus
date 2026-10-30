@@ -70,6 +70,13 @@ details.calc-extra summary::before,details.calc-ref summary::before{content:'+';
 details[open].calc-extra summary::before,details[open].calc-ref summary::before{content:'−'}
 details.calc-extra .field:last-child{border-bottom:0}
 
+.calc-keypoints{margin:16px 0 4px;padding:14px 16px 6px;background:var(--wine-soft);border-left:4px solid var(--wine)}
+.calc-keypoints[hidden]{display:none}
+.calc-keypoints h3{margin:0 0 8px;font:400 21px/1.3 'NTF Serif',Georgia,serif;color:var(--wine)}
+.calc-keypoints h3+ol,.calc-keypoints h3+ul{margin-top:0}
+.calc-keypoints ol,.calc-keypoints ul{margin:0 0 12px;padding-left:20px;font-size:15px;line-height:1.55}
+.calc-keypoints li{margin-bottom:6px}
+.calc-keypoints b{color:var(--ink)}
 .calc-notes{margin:14px 0 4px}
 .calc-notes p{margin:0 0 8px;padding-left:12px;border-left:2px solid var(--line);color:var(--muted);font-size:15px}
 details.calc-ref{margin-top:14px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
