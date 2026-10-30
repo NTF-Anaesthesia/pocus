@@ -4,7 +4,7 @@
 - Imported from the NTF site repo on 24 Oct 2026; Worker `pocus` serves pocus.anantf.com.
 
 ## Waiting on the owners
-- Nothing recorded here yet.
+- Standard TTE views (Cardiac, Part 'Reference'): supply the missing aortic-root threshold for patients having AVR (source notes lost the number), and per-image credits or licences.
 
 ## Next
 1. Check the live host after the first deploy.

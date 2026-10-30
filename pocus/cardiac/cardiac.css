@@ -61,3 +61,11 @@
 @media(max-width:900px){.lv-grid-4{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:560px){.lv-grid-4{grid-template-columns:minmax(0,1fr)}}
 #lv-linear .card,#lv-function .card{margin-bottom:14px}
+
+/* Standard TTE views reference (30 Oct 2026): image grids with captions. */
+.tte-figs{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin:14px 0 22px}
+.tte-fig{margin:0;min-width:0}
+.tte-fig img{display:block;width:100%;height:auto;max-height:300px;object-fit:contain;background:#fff;border:1px solid #d7d2c8}
+.tte-fig figcaption{font:12px/1.5 var(--sans,'NTF Sans',sans-serif);color:#504e47;margin-top:5px}
+.tte-credit{margin-top:18px;max-width:72ch}
+#tte-doppler .tte-figs{grid-template-columns:minmax(0,640px)}
