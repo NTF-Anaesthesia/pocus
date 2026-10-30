@@ -10,7 +10,7 @@
 1. Check the live host after the first deploy.
 
 ## Recently done
-- 30 Oct 2026: bedside calculator (`calculator/`): EF from FS, FAC or volumes; LVOT SV/CO; IVC indices. Linked from the hub under Heart and circulation.
+- 30 Oct 2026: bedside calculator (`calculator/`): EF from FS, FAC or volumes; LVOT SV/CO; IVC indices. Linked from the hub under Heart and circulation, and featured as a quick link under the hub banner (31 Oct).
 - Repo created and the POCUS pages moved here.
 - 30 Oct 2026: Cases Part III (four described SCCM lunch cases, no clips) and 30-minute presenter plans on basics, cardiac LV, haemodynamics and cases; small text additions, no new media or thresholds.
 
