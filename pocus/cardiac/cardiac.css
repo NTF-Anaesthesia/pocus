@@ -69,3 +69,13 @@
 .tte-fig figcaption{font:12px/1.5 var(--sans,'NTF Sans',sans-serif);color:#504e47;margin-top:5px}
 .tte-credit{margin-top:18px;max-width:72ch}
 #tte-doppler .tte-figs{grid-template-columns:minmax(0,640px)}
+
+/* RV part: 30-minute plan on the divider and rehearsal questions on the patterns slide (30 Oct 2026). */
+.rv-plan{margin-top:16px}
+.rv-plan summary{cursor:pointer;min-height:44px;padding-block:10px;color:#633d3c}
+.rv-plan table{margin-top:10px}
+.rv-rehearse{padding-top:0!important}
+.rv-rehearse>details.card>summary{cursor:pointer;min-height:44px;padding-block:10px;color:#633d3c}
+.rv-rehearse details details{margin:8px 0 0 4px;border-top:1px solid #d7d2c8;padding-top:8px}
+.rv-rehearse details details summary{cursor:pointer;min-height:44px;padding-block:8px;font-weight:600}
+.rv-rehearse details details p{margin:4px 0 8px;max-width:68ch}
