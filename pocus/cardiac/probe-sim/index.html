@@ -52,12 +52,13 @@ button[aria-pressed=true]{background:#633d3c;color:#fff}
 <script src="sim.js"></script>
 <script src="probe.js"></script>
 <script>
-(() => {
+(async () => {
  const q = new URLSearchParams(location.search);
  const { SliceRenderer, TARGETS, score } = window.ProbeSim;
  const usCanvas = document.getElementById('us');
  const R = new SliceRenderer(usCanvas, { w: Number(q.get('w') || 560), h: Number(q.get('h') || 420), dpr: Number(q.get('dpr') || 1.5) });
  if (!R.ok) { document.getElementById('status').textContent = 'WebGL2 is not available in this browser.'; }
+ if (!q.has('novol')) { try { if (await R.loadVolume('volume')) window.ProbeSim.refreshTargets(); } catch (e) { console.warn('volume', e); } }
  let target = TARGETS[q.get('pose')] ? q.get('pose') : 'plax';
  const t0 = TARGETS[target];
  const pose0 = { x: t0.x, y: t0.y, rot: t0.rot, tilt: t0.tilt, rock: t0.rock };
