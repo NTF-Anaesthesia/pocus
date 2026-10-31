@@ -140,7 +140,7 @@ float sdRibs(vec3 p){ float surf = abs(chestR(p, 2.0)) - 0.4;          // a band
   float r = max(surf, band); r = max(r, 1.3 - abs(p.x));                       // no ribs under the sternum
   return max(r, -(p.y - 1.5)); }
 float isBoneRib(vec3 p){ float edge = 7.0 + 0.5 * max(p.y - 8.0, 0.0) + 0.6 * sin(p.y * 1.7); return smoothstep(edge - 1.5, edge + 1.5, abs(p.x)); }   // costal cartilage gives way to bone laterally   // 1 where ribs are bone, 0 over costal cartilage
-float sdSpine(vec3 p){ return sdCapsule(p, vec3(0.0, -2.0, 17.5), vec3(0.0, 40.0, 17.5), 2.0); }
+float sdSpine(vec3 p){ return sdCapsule(p, vec3(0.0, -2.0, 17.8), vec3(0.0, 40.0, 17.8), 1.6); }
 float sdLiver(vec3 p){ vec3 q = p - vec3(-4.0, 21.5, 5.5); return sdEllipsoid(q, vec3(12.0, 8.0, 6.5)); }
 vec3 raCentreWorld(){ return u_hc + u_he1 * 1.2 + u_he2 * 2.4 + u_he3 * (-5.9); }
 float ivcR(){ return 1.05 - 0.35 * u_breath; }
@@ -155,7 +155,7 @@ float sdLung(vec3 p, float c){
   float heart = sdHeartOuter(toHeart(p), c) + 0.7;                             // the heart and pericardial fat exclude lung
   vec2 nq = vec2((p.x - 3.0) / (6.0 - 1.5 * u_breath), (p.y - 12.5) / 6.5);   // cardiac notch: no lung in front of or below the heart
   float notch = max((length(nq) - 1.0) * 6.0, p.z - 5.5);
-  float medi = sdBox(p - vec3(0.0, 9.0, 12.5), vec3(3.0, 9.5, 6.0));          // mediastinum: oesophagus, aorta, spine, no lung
+  float medi = sdBox(p - vec3(0.5, 9.0, 11.0), vec3(2.6, 9.5, 3.5));          // posterior mediastinum: oesophagus and aorta; lung wraps behind, into the gutters
   return max(max(cavity, -heart), max(-notch, -medi)); }
 
 float sdLungCheap(vec3 p, float c){
@@ -163,7 +163,7 @@ float sdLungCheap(vec3 p, float c){
   float dome = 17.5 - 4.0 * exp(-pow((abs(p.x) - 8.0) / 5.0, 2.0)) - 3.0 * (1.0 - smoothstep(0.0, 8.0, p.z)); cavity = max(cavity, p.y - dome);
   vec3 h = toHeart(p); float heart = min(sdLVepi(h, c), sdRVouter(h, c)) + 0.9;
   vec2 nq = vec2((p.x - 3.0) / (6.0 - 1.5 * u_breath), (p.y - 12.5) / 6.5); float notch = max((length(nq) - 1.0) * 6.0, p.z - 5.5);
-  float medi = sdBox(p - vec3(0.0, 9.0, 12.5), vec3(3.0, 9.5, 6.0));
+  float medi = sdBox(p - vec3(0.5, 9.0, 11.0), vec3(2.6, 9.5, 3.5));
   return max(max(cavity, -heart), max(-notch, -medi)); }
 
 /* ----- classify a point ----- */
@@ -191,88 +191,146 @@ Tis classify(vec3 p, float c, float mo, float ao){
   if (sdLung(p, c) < 0.0) { t.id = 7; return t; }
   return t; }
 
-float echoOf(int id){ return id == 0 ? 0.05 : id == 1 ? 0.5 : id == 2 ? 0.55 : id == 3 ? 0.95 : id == 4 ? 0.5 : id == 5 ? 0.26 : id == 6 ? 0.95 : id == 7 ? 0.0 : id == 8 ? 0.5 : id == 9 ? 0.5 : id == 10 ? 0.22 : 0.0; }
+float echoOf(int id){ return id == 0 ? 0.012 : id == 1 ? 0.5 : id == 2 ? 0.55 : id == 3 ? 0.95 : id == 4 ? 0.5 : id == 5 ? 0.26 : id == 6 ? 0.95 : id == 7 ? 0.0 : id == 8 ? 0.5 : id == 9 ? 0.5 : id == 10 ? 0.22 : 0.0; }
 
 /* ----- specular surfaces: pericardium, valves, vessel walls, diaphragm ----- */
 float specField(vec3 p, float c, float mo, float ao){ vec3 h = toHeart(p);
   float s = abs(sdHeartOuter(h, c) - 0.2 - u_effusion);                        // pericardium
   s = min(s, abs(min(min(sdMV(h, mo), sdTV(h, mo)), sdAV(h, ao))));
   s = min(s, abs(sdAoWall(h)) * 1.2);
-  s = min(s, abs(sdLVcav(h, c)) * 2.5 + 0.03);                                 // endocardium, weak and fuzzy
+  s = min(s, abs(sdLVcav(h, c)) * 4.0 + 0.04);                                 // endocardium, weak and fuzzy
   s = min(s, abs(sdLiver(p)) * 1.4); s = min(s, abs(sdIVC(p)) * 1.3); s = min(s, abs(sdDescAo(p)) * 1.3);
   s = min(s, abs(chestR(p, 0.0) + 0.9) * 1.5);                                 // fascia under the subcutaneous fat
   s = min(s, abs(sdRibs(p)) * 1.2 + 0.4 * isBoneRib(p));                       // cartilage edges
   return s; }
-vec3 specNormal(vec3 p, float c, float mo, float ao, float s0){ float e = 0.04; vec3 g = vec3(
-  specField(p + vec3(e,0,0), c, mo, ao) - s0, specField(p + vec3(0,e,0), c, mo, ao) - s0, specField(p + vec3(0,0,e), c, mo, ao) - s0); return normalize(g + 1e-5); }
+/* signed distance of the surface nearest p, so its gradient is a true normal */
+float nearestSigned(vec3 p, float c, float mo, float ao){ vec3 h = toHeart(p);
+  float best = sdHeartOuter(h, c) - 0.2 - u_effusion, bd = abs(best);
+  float d;
+  d = min(min(sdMV(h, mo), sdTV(h, mo)), sdAV(h, ao)); if (abs(d) < bd) { bd = abs(d); best = d; }
+  d = sdAoWall(h); if (abs(d) * 1.2 < bd) { bd = abs(d) * 1.2; best = d; }
+  d = sdLVcav(h, c); if (abs(d) * 4.0 + 0.04 < bd) { bd = abs(d) * 4.0 + 0.04; best = d; }
+  d = sdLiver(p); if (abs(d) * 1.4 < bd) { bd = abs(d) * 1.4; best = d; }
+  d = sdIVC(p); if (abs(d) * 1.3 < bd) { bd = abs(d) * 1.3; best = d; }
+  d = sdDescAo(p); if (abs(d) * 1.3 < bd) { bd = abs(d) * 1.3; best = d; }
+  d = chestR(p, 0.0) + 0.9; if (abs(d) * 1.5 < bd) { bd = abs(d) * 1.5; best = d; }
+  d = sdRibs(p); if (abs(d) * 1.2 + 0.4 * isBoneRib(p) < bd) { bd = abs(d) * 1.2 + 0.4 * isBoneRib(p); best = d; }
+  return best; }
+vec3 specNormal(vec3 p, float c, float mo, float ao, float s0){ float e = 0.03; float s1 = nearestSigned(p, c, mo, ao); vec3 g = vec3(
+  nearestSigned(p + vec3(e,0,0), c, mo, ao) - s1, nearestSigned(p + vec3(0,e,0), c, mo, ao) - s1, nearestSigned(p + vec3(0,0,e), c, mo, ao) - s1); return normalize(g + 1e-5); }
 
+/* Pass 1: the scatterer field on a polar grid. x → beam angle, y → depth.
+   Each texel holds one complex scatterer (strength and random phase, tissue-locked), the local specular reflectivity
+   and a debug tissue id. Transmission losses from bone and lung are applied to the scatterer strength here. */
 void main(){
-  /* sector geometry: apex at the top centre, depth u_depth cm maps to the canvas height */
-  vec2 px = (v * 0.5 + 0.5) * u_res;
-  vec2 apex = vec2(u_res.x * 0.5, u_res.y - 10.0);                            // GL y grows upwards: the apex sits at the top
-  float R = u_res.y - 18.0;
-  vec2 dd = vec2(px.x - apex.x, apex.y - px.y);                               // dd.y grows with depth
-  float dist = length(dd); float ang = atan(dd.x, dd.y);                        // 0 straight down
-  if (dist > R || abs(ang) > u_sector || dd.y < 0.0) { o = vec4(0.0, 0.0, 0.0, 1.0); return; }
-  float r = dist / R * u_depth;                                                // cm
+  float ang = (v.x) * u_sector;                                               // v.x in −1..1
+  float r = (v.y * 0.5 + 0.5) * u_depth;                                      // cm
   float c = contraction(u_phase), mo = mitralOpen(u_phase), ao = aorticOpen(u_phase);
   vec3 dir = normalize(u_beam * cos(ang) + u_lat * sin(ang));
   vec3 p = u_origin + dir * r;
 
   Tis t = classify(p, c, mo, ao);
-  float dAng = 0.018 * (0.5 + r / 8.0);                                       // lateral beam width grows with depth
-  float side = hash(vec3(px * 0.37, 1.0)) > 0.5 ? 1.0 : -1.0;                  // one extra tap, alternating side, dithers the edge
-  Tis tS = classify(u_origin + normalize(u_beam * cos(ang + side * dAng) + u_lat * sin(ang + side * dAng)) * r, c, mo, ao);
   if (u_debug == 1) { vec3 col = vec3(0.0);
     if (t.id == 0) col = vec3(0.1, 0.15, 0.6); else if (t.id == 1) col = vec3(0.8, 0.2, 0.2); else if (t.id == 2) col = vec3(1.0, 0.9, 0.2);
     else if (t.id == 3) col = vec3(0.9, 0.3, 0.9); else if (t.id == 4) col = vec3(0.55, 0.35, 0.15); else if (t.id == 5) col = vec3(0.75, 0.65, 0.5);
     else if (t.id == 6) col = vec3(1.0); else if (t.id == 7) col = vec3(0.2, 0.85, 0.9); else if (t.id == 8) col = vec3(1.0, 0.7, 0.75); else if (t.id == 9) col = vec3(1.0, 0.55, 0.1); else if (t.id == 10) col = vec3(0.6, 0.8, 0.6);
     o = vec4(col, 1.0); return; }
-  /* base echogenicity per tissue */
-  float grain = 1.0, flow = t.id == 0 ? 1.0 : 0.0;
-  if (t.id == 3) grain = 0.7; else if (t.id == 4) grain = 1.6; else if (t.id == 5) grain = 0.7; else if (t.id == 10) grain = 0.9;
-  float base = (echoOf(t.id) + echoOf(tS.id)) * 0.5;                          // lateral smear over the beam width
 
-  /* speckle: fine axially, coarser laterally with depth; blood decorrelates every frame */
-  float lat = ang * r;
-  vec3 q = vec3(r / 0.05, lat / (0.11 * (1.0 + r / 6.0)), 0.37 * float(t.id) + (flow > 0.5 ? u_time * 23.0 : 0.0) + 0.6 * c * (t.id == 1 ? 1.0 : 0.0));
-  float n1 = vnoise(q * grain), n2 = vnoise(q * grain * 2.3 + 7.1);
-  float slow = 0.7 + 0.6 * vnoise(p * 0.9 + 3.0);                            // tissue inhomogeneity at the centimetre scale
-  float speck = pow(0.3 + 0.7 * n1, 1.7) * (0.7 + 0.6 * n2) * slow;
-  float I = base * speck;
+  /* scatterer strength: tissue echogenicity, modulated at the centimetre scale, and the scatterer density per tissue */
+  float strength = echoOf(t.id);
+  float slow = 0.75 + 0.5 * vnoise(p * 0.8 + 3.0);
+  float density = t.id == 4 ? 1.0 : t.id == 5 ? 0.6 : t.id == 1 ? 0.85 : t.id == 0 ? 0.9 : 0.8;
 
-  /* specular interfaces: bright when the beam meets them square on */
-  float sf = specField(p, c, mo, ao);
-  if (sf < 0.18) { vec3 n = specNormal(p, c, mo, ao, sf); float f = exp(-(sf * sf) / (2.0 * 0.045 * 0.045)); float cosI = abs(dot(n, dir)); I += f * (0.06 + 1.1 * pow(cosI, 4.0)) * (0.45 + 0.9 * n1) * (0.6 + 0.6 * n2); }
+  /* material coordinates: cardiac tissue carries its speckle through the cycle; blood decorrelates every frame */
+  vec3 m = p;
+  bool cardiac = (t.id == 0 || t.id == 1 || t.id == 2 || t.id == 3 || t.id == 9);
+  if (cardiac) { vec3 h = toHeart(p); m = vec3(h.xy * (1.0 + 0.25 * c), h.z * (1.0 + 0.08 * c)) + 100.0; }
+  if (t.id == 0) m += vec3(0.0, 0.0, u_time * 37.0);
+  vec3 cell = floor(m / 0.015);                                                // 0.15 mm scatterer cells
+  float a1 = hash(cell), a2 = hash(cell + 17.0), a3 = hash(cell + 41.0);
+  float amp = strength * slow * (0.35 + 0.65 * (a1 + hash(cell + 7.0))) * mix(0.7, 1.0, density);   // dense scatterers, mild amplitude spread
+  float phase = 6.2831853 * a2;
 
-  /* shadowing: bone stops the beam; lung reflects it, with reverberations behind */
-  float shadow = 0.0, reverb = 0.0; float lungAt = -1.0, boneAt = -1.0, boneMin = 1e3, lungMin = 1e3;
-  int N = 22;
-  for (int i = 1; i <= 22; i++) { float s = (r - 0.2) * float(i) / float(N); if (s <= 0.0) break; vec3 ps = u_origin + dir * s;
-    float b = min(sdSternum(ps), sdRibs(ps) + 2.0 * (1.0 - isBoneRib(ps))); if (b < boneMin) { boneMin = b; if (b < 0.0 && boneAt < 0.0) boneAt = s; }
-    float l = sdLungCheap(ps, c); if (l < lungMin) { lungMin = l; if (l < 0.0 && lungAt < 0.0) lungAt = s; } }
-  if (u_debug == 2) { o = vec4(boneAt > 0.0 ? 1.0 : 0.0, lungAt > 0.0 ? 1.0 : 0.0, float(t.id) / 10.0, 1.0); return; }
-  shadow = 1.0 - smoothstep(-0.35, 0.2, boneMin);                              // soft-edged rib shadow
-  float lungShadow = (1.0 - smoothstep(-0.3, 0.15, lungMin)) * 0.9;
-  if (lungAt > 0.0) { float k = (r - lungAt) / max(lungAt, 0.5); reverb = lungShadow * (0.55 * exp(-k * 1.6) * (0.2 + 0.8 * bump(fract(k + 0.5), 0.5, 0.12)) * (0.5 + 0.8 * n1) + 0.05 * n2); }   // A-lines at multiples of the pleural depth
+  /* specular reflectivity: interfaces that face the beam reflect it, those edge-on do not */
+  float sf = specField(p, c, mo, ao), spec = 0.0;
+  if (sf < 0.3) { vec3 n = specNormal(p, c, mo, ao, sf); float f = exp(-(sf * sf) / (2.0 * 0.09 * 0.09)); float cosI = abs(dot(n, dir)); float refl = f * (0.02 + 0.8 * pow(cosI, 3.0)) * (0.4 + 1.2 * a1 * a3); spec = refl * 0.35; amp += refl * 0.9; }
+
+  /* transmission: bone and lung along the ray */
+  float lungAt = -1.0, boneAt = -1.0, boneMin = 1e3, lungMin = 1e3;
+  for (int i = 1; i <= 22; i++) { float sdist = (r - 0.2) * float(i) / 22.0; if (sdist <= 0.0) break; vec3 ps = u_origin + dir * sdist;
+    float bb = min(sdSternum(ps), sdRibs(ps) + 2.0 * (1.0 - isBoneRib(ps))); if (bb < boneMin) { boneMin = bb; if (bb < 0.0 && boneAt < 0.0) boneAt = sdist; }
+    float l = sdLungCheap(ps, c); if (l < lungMin) { lungMin = l; if (l < 0.0 && lungAt < 0.0) lungAt = sdist; } }
+  float shadow = 1.0 - smoothstep(-0.35, 0.2, boneMin);
+  float lungShadow = (1.0 - smoothstep(-0.3, 0.15, lungMin)) * 0.92;
   shadow = max(shadow, lungShadow);
-  if (t.id == 7) { float ls = -sdLung(p, c); I = ls < 0.2 ? 0.95 * (0.6 + 0.6 * n1) : 0.0; }   // the pleural line, then nothing
-  if (t.id == 6) { float bs = -min(min(sdSternum(p), sdSpine(p)), sdRibs(p)); I = bs < 0.2 ? 0.95 : 0.0; }   // bone: a bright front edge
-  I = I * (1.0 - shadow) + reverb * (0.5 + 0.5 * n2) * (1.0 - 0.7 * shadow * 0.0);
+  float trans = 1.0 - shadow;
+  /* reverberation behind the pleura: faint copies of the near field at multiples of the pleural depth */
+  float reverb = 0.0;
+  if (lungAt > 0.0) { float k = (r - lungAt) / max(lungAt, 0.5); reverb = lungShadow * 0.5 * exp(-k * 1.6) * (0.15 + 0.85 * bump(fract(k + 0.5), 0.5, 0.1)); }
+  /* the pleural line and bone surfaces are strong reflectors; nothing returns from inside them */
+  if (t.id == 7) { float ls = -sdLung(p, c); amp = 0.0; spec = ls < 0.15 ? 1.0 * (0.6 + 0.8 * a1) : 0.0; }
+  if (t.id == 6) { float bs = -min(min(sdSternum(p), sdSpine(p)), sdRibs(p)); amp = 0.0; spec = bs < 0.15 ? 0.7 * (0.5 + 0.8 * a1) : 0.0; }
+  amp = amp * trans + reverb * (0.3 + 1.2 * a1 * a1);
+  if (r < 0.9) amp += (0.9 - r) / 0.9 * 0.3 * (0.5 + 1.0 * a1);               // near-field reverberation band
+  spec *= trans;
 
-  /* near-field reverberation band and depth attenuation with TGC */
-  if (r < 1.3) I += (1.3 - r) / 1.3 * 0.55 * (0.5 + 0.7 * n1);
-  float tgc = exp(-0.09 * r) * (1.0 + 0.085 * r);
-  I *= tgc * u_gain;
-  I += 0.012 * n2;                                                             // electronic noise floor
+  /* encode: complex scatterer in RG (signed, offset), reflectivity in B, tissue id in A */
+  float sx = clamp(amp * cos(phase) * 0.45, -0.5, 0.5), sy = clamp(amp * sin(phase) * 0.45, -0.5, 0.5);
+  o = vec4(sx + 0.5, sy + 0.5, clamp(spec * 0.5, 0.0, 1.0), float(t.id + 1) / 12.0);
+}`;
 
+/* Pass 2: image formation. Every screen pixel inside the sector sums the scatterers around it through the pulse's
+   point-spread function (a short axial wave packet, a lateral beam that widens with depth) with their phases, which is
+   what makes speckle: the grain is the interference pattern, not a texture. Reflectivity is added incoherently. */
+const FRAG_IMAGE = `#version 300 es
+precision highp float;
+in vec2 v; out vec4 o;
+uniform sampler2D u_field; uniform vec2 u_res, u_fieldRes;
+uniform float u_depth, u_sector, u_gain; uniform int u_debug;
+float hash2(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+void main(){
+  vec2 px = (v * 0.5 + 0.5) * u_res;
+  vec2 apex = vec2(u_res.x * 0.5, u_res.y - 10.0);
+  float R = u_res.y - 18.0;
+  vec2 dd = vec2(px.x - apex.x, apex.y - px.y);
+  float dist = length(dd); float ang = atan(dd.x, dd.y);
+  if (dist > R || abs(ang) > u_sector || dd.y < 0.0) { o = vec4(0.0, 0.0, 0.0, 1.0); return; }
+  float r = dist / R * u_depth;
+  vec2 uv = vec2(ang / (2.0 * u_sector) + 0.5, r / u_depth);
+  if (u_debug == 1) { o = vec4(texture(u_field, uv).rgb, 1.0); return; }
+
+  float dr = u_depth / u_fieldRes.y;                                           // cm per axial texel
+  float dth = 2.0 * u_sector / u_fieldRes.x;                                   // rad per beam
+  const float K = 2.0 * 3.14159265 / 0.064;                                    // carrier: one cycle per 0.64 mm
+  float sigA = 0.055;                                                          // axial pulse length (cm)
+  float sigL = max(0.06, 2.2 * dth * r);                                       // lateral beam width (cm): about two beams, so it widens with depth
+  const float K2 = 2.0 * 3.14159265 / 0.082;                                   // second carrier for frequency compounding
+  float re = 0.0, im = 0.0, re2 = 0.0, im2 = 0.0, spec = 0.0, wsum = 0.0;
+  for (int j = -5; j <= 5; j++) {
+    float dl = float(j) * dth * r; float wl = exp(-dl * dl / (2.0 * sigL * sigL));
+    if (wl < 0.02) continue;
+    for (int i = -10; i <= 10; i++) {
+      float dz = float(i) * dr; float wa = exp(-dz * dz / (2.0 * sigA * sigA));
+      vec4 f = texture(u_field, uv + vec2(float(j) / u_fieldRes.x, float(i) / u_fieldRes.y));
+      vec2 sc = (f.rg - 0.5) / 0.45;
+      float w = wa * wl, ck = cos(K * dz), sk = sin(K * dz);
+      re += w * (sc.x * ck - sc.y * sk); im += w * (sc.x * sk + sc.y * ck);
+      float ck2 = cos(K2 * dz), sk2 = sin(K2 * dz); re2 += w * (sc.x * ck2 - sc.y * sk2); im2 += w * (sc.x * sk2 + sc.y * ck2);
+      spec += w * f.b * 2.0; wsum += w;
+    }
+  }
+  float env = (length(vec2(re, im)) + length(vec2(re2, im2))) * 0.5 / max(wsum, 1e-3) * 2.6;   // compounded speckle envelope
+  float I = env + spec / max(wsum, 1e-3) * 0.7;
+  /* depth attenuation with TGC, gain, electronic noise */
+  float tgc = exp(-0.08 * r) * (1.0 + 0.08 * r);
+  I = I * tgc * u_gain + 0.01 * hash2(px);
   /* log compression and display curve */
-  float y = log(1.0 + 38.0 * I) / log(39.0);
-  y = pow(clamp(y, 0.0, 1.0), 1.15);
-  /* lateral edge dropout of the sector */
-  y *= 1.0 - 0.35 * pow(abs(ang) / u_sector, 6.0);
+  float y = log(1.0 + 45.0 * I) / log(46.0);
+  y = pow(clamp(y, 0.0, 1.0), 1.25);
+  y *= 1.0 - 0.3 * pow(abs(ang) / u_sector, 6.0);
   o = vec4(vec3(y) * vec3(0.96, 0.98, 1.0), 1.0);
 }`;
+
 
 /* ---------- renderer ---------- */
 class SliceRenderer {
@@ -285,25 +343,44 @@ class SliceRenderer {
     this.gl = gl; this.ok = !!gl;
     if (!gl) return;
     const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
-    const prog = gl.createProgram(); gl.attachShader(prog, sh(gl.VERTEX_SHADER, VERT)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FRAG)); gl.linkProgram(prog);
-    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
-    this.prog = prog; gl.useProgram(prog);
+    const program = (fs) => { const prog = gl.createProgram(); gl.attachShader(prog, sh(gl.VERTEX_SHADER, VERT)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(prog); if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog)); return prog; };
+    this.pField = program(FRAG); this.pImage = program(FRAG_IMAGE);
     const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
-    const loc = gl.getAttribLocation(prog, 'a'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-    this.u = {}; for (const name of ['u_res', 'u_time', 'u_phase', 'u_breath', 'u_depth', 'u_sector', 'u_gain', 'u_effusion', 'u_rvdil', 'u_lvef', 'u_origin', 'u_beam', 'u_lat', 'u_he1', 'u_he2', 'u_he3', 'u_hc', 'u_debug']) this.u[name] = gl.getUniformLocation(prog, name);
+    for (const prog of [this.pField, this.pImage]) { const loc = gl.getAttribLocation(prog, 'a'); gl.useProgram(prog); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0); }
+    const U = (prog, names) => { const u = {}; for (const n of names) u[n] = gl.getUniformLocation(prog, n); return u; };
+    this.uF = U(this.pField, ['u_res', 'u_time', 'u_phase', 'u_breath', 'u_depth', 'u_sector', 'u_gain', 'u_effusion', 'u_rvdil', 'u_lvef', 'u_origin', 'u_beam', 'u_lat', 'u_he1', 'u_he2', 'u_he3', 'u_hc', 'u_debug']);
+    this.uI = U(this.pImage, ['u_field', 'u_res', 'u_fieldRes', 'u_depth', 'u_sector', 'u_gain', 'u_debug']);
+    /* the scatterer field: beams across, depth samples down */
+    this.FW = opts.beams || 320; this.FH = opts.samples || 1024;
+    const tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.FW, this.FH, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    const fbo = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    this.tex = tex; this.fbo = fbo;
     this.params = { depth: 16, sector: 42, gain: 1, effusion: 0, rvdil: 0, lvef: 0.6, hr: 72, breath: 0, debug: 0 };
   }
   /* Draw one frame for a pose at a cardiac phase (0..1) and time (s). */
   draw(pose, phase, time, breath = 0) {
     const gl = this.gl; if (!gl) return;
-    const P = planeFor(pose), q = this.params;
-    gl.viewport(0, 0, this.cv.width, this.cv.height);
-    gl.uniform2f(this.u.u_res, this.cv.width, this.cv.height);
-    gl.uniform1f(this.u.u_time, time); gl.uniform1f(this.u.u_phase, phase); gl.uniform1f(this.u.u_breath, breath);
-    gl.uniform1f(this.u.u_depth, q.depth); gl.uniform1f(this.u.u_sector, q.sector * D2R); gl.uniform1f(this.u.u_gain, q.gain);
-    gl.uniform1i(this.u.u_debug, q.debug | 0); gl.uniform1f(this.u.u_effusion, q.effusion); gl.uniform1f(this.u.u_rvdil, q.rvdil); gl.uniform1f(this.u.u_lvef, q.lvef);
-    gl.uniform3fv(this.u.u_origin, P.origin); gl.uniform3fv(this.u.u_beam, P.beam); gl.uniform3fv(this.u.u_lat, P.lat);
-    gl.uniform3fv(this.u.u_he1, HEART.e1); gl.uniform3fv(this.u.u_he2, HEART.e2); gl.uniform3fv(this.u.u_he3, HEART.e3); gl.uniform3fv(this.u.u_hc, HEART.centre);
+    const P = planeFor(pose), q = this.params, sector = q.sector * D2R;
+    /* pass 1: scatterer field */
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo); gl.viewport(0, 0, this.FW, this.FH); gl.useProgram(this.pField);
+    const u = this.uF;
+    gl.uniform2f(u.u_res, this.FW, this.FH);
+    gl.uniform1f(u.u_time, time); gl.uniform1f(u.u_phase, phase); gl.uniform1f(u.u_breath, breath);
+    gl.uniform1f(u.u_depth, q.depth); gl.uniform1f(u.u_sector, sector); gl.uniform1f(u.u_gain, q.gain);
+    gl.uniform1i(u.u_debug, q.debug | 0); gl.uniform1f(u.u_effusion, q.effusion); gl.uniform1f(u.u_rvdil, q.rvdil); gl.uniform1f(u.u_lvef, q.lvef);
+    gl.uniform3fv(u.u_origin, P.origin); gl.uniform3fv(u.u_beam, P.beam); gl.uniform3fv(u.u_lat, P.lat);
+    gl.uniform3fv(u.u_he1, HEART.e1); gl.uniform3fv(u.u_he2, HEART.e2); gl.uniform3fv(u.u_he3, HEART.e3); gl.uniform3fv(u.u_hc, HEART.centre);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    /* pass 2: image formation */
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, this.cv.width, this.cv.height); gl.useProgram(this.pImage);
+    const w = this.uI;
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.tex); gl.uniform1i(w.u_field, 0);
+    gl.uniform2f(w.u_res, this.cv.width, this.cv.height); gl.uniform2f(w.u_fieldRes, this.FW, this.FH);
+    gl.uniform1f(w.u_depth, q.depth); gl.uniform1f(w.u_sector, sector); gl.uniform1f(w.u_gain, q.gain); gl.uniform1i(w.u_debug, q.debug | 0);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 }

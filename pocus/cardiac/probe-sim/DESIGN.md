@@ -69,26 +69,24 @@ RV patterns lab and the effusion slide can later drive the same renderer.
 
 ## Image formation
 
-Per pixel of the sector (polar grid: beam angle × depth), walk the ray from the probe face to the pixel's depth:
+Two passes on the GPU. The picture is never drawn; it is formed from scatterers, as a real scanner's is.
 
-1. Tissue lookup at the sample point from the SDFs; echogenicity base value per class.
-2. Speckle: multiplicative noise, correlated along the beam (axial grain 0.4 mm) and across beams (lateral grain
-   grows with depth as the beam widens); generated from a 3D hash of the torso-frame coordinates so it is stable while
-   the heart moves through it, which is how real speckle behaves.
-3. Specular term: where the ray crosses an interface (SDF sign change), brightness scales with |cos| of the angle
-   between the ray and the surface normal, so pericardium and valve leaflets flash when perpendicular and fade when
-   parallel. This is the single biggest contributor to looking real.
-4. Attenuation: exponential with depth, compensated by a TGC curve; the far field stays slightly darker and noisier.
-5. Shadowing: cumulative along the ray; bone stops the ray (bright edge, black behind); air gives a bright line, then
-   repeated reverberations fading with depth, then black. Lateral resolution: a small blur across beams.
-6. Near field: a bright reverberation band over the first 1 cm, as every real still shows.
-7. Log compression and a gamma curve calibrated against the real stills; 70 dB dynamic range feel.
-8. Sector geometry, scale marks every 5 cm, the probe marker dot at the apex, and the ECG trace reuse the existing
-   `Sono` chrome so the panel matches the rest of the lecture.
+1. **Scatterer field** (pass 1, polar grid: 320 beams × 1024 depth samples). Each texel is one scatterer: its strength
+   is the tissue's echogenicity at that point, modulated at the centimetre scale; its phase and amplitude are random but
+   hashed from *material* coordinates (heart frame for cardiac tissue, torso frame elsewhere, time for blood), so the
+   speckle moves with the tissue and decorrelates in the blood pool. Interfaces add coherent reflectivity scaled by
+   how squarely the beam meets the surface normal. Bone and lung along the ray attenuate everything behind them; lung
+   adds reverberation copies at multiples of the pleural depth. Bone and pleura themselves are reflectors with nothing
+   returning from inside them.
+2. **Image** (pass 2, screen pixels). Every pixel inside the sector sums the scatterers around it through the pulse's
+   point-spread function: a short axial wave packet on a carrier, and a lateral beam about two beams wide so it widens
+   with depth. The complex sum's envelope is the speckle: the grain is the interference pattern. Two carriers are
+   compounded to tame the contrast, as scanners do. Then depth attenuation with TGC, gain, an electronic noise floor,
+   log compression and a display gamma, and lateral drop-off at the sector edges.
 
-Implementation: WebGL2 fragment shader (whole image per frame, 60 fps on a phone) with the SDFs and the ray walk in
-GLSL; a 2D-canvas fallback at quarter resolution for contexts without WebGL. The cardiac phase, breathing phase and
-pose are uniforms. The same shader renders the target-view stills for the PLAX, PSAX, A4C and subcostal slides.
+The result has Rayleigh speckle with the right anisotropy (fine axially, elongated laterally, coarser with depth),
+edges that come from contrast and reflection rather than outlines, and shadows that are soft because the shadow
+test is a signed distance to bone or lung along the ray.
 
 ## Calibration
 
