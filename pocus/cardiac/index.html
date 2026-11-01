@@ -2197,7 +2197,7 @@ const HV = { ready: false };
     const ao = av && cen((l, x, y, z) => l === 6 && Math.hypot(x * sp - av[0], y * sp - av[1], z * sp - av[2]) < 35);
     Object.assign(HV, { L, nx, ny, nz, sp, lvC, axis, apex, mv: cen(l => l === 13), tv: cen(l => l === 14), av, ao, ra: cen(l => l === 4), rv: cen(l => l === 5), la: cen(l => l === 2) });
     { const u = n3(p3([0, 0, 0], HV.axis, -1)), aApex = d3(s3(HV.apex, HV.lvC), u), aBase = d3(s3(HV.mv, HV.lvC), u) - aApex;
-      HV.mo = { u, aApex, aBase, rvP: inPlane(s3(HV.rv, HV.lvC), u) }; }
+      HV.mo = { u, aApex, aBase, rvP: inPlane(s3(HV.rv, HV.lvC), u) }; HV.valves = ctValves(); }
     HV.planes = ctPlanes(); HV.ready = true;
   } catch (e) { console.warn('heart volume', e); }
 })();
@@ -2226,10 +2226,53 @@ function ctPlanes() {
     P.sc4c = { O: p3(C, D, -110), D, Lt }; }
   return P;
 }
+/* Structures the CT labels leave out, built in end-diastolic volume coordinates so they move with the heart:
+   - mitral leaflets: anterior (aortic side, 24 mm) and posterior (14 mm), hinged on the annulus. Closed, they meet
+     just below the annulus; open, they swing towards the apex. Their angle follows the mitral inflow (E, diastasis,
+     A) from cyc.
+   - tricuspid leaflets: septal (15 mm) and anterior (20 mm), same timing.
+   - aortic cusps: three, 11 mm, flat against the root while it ejects, meeting in the middle when closed.
+   - papillary muscles: anterolateral (about 4 o'clock in PSAX) and posteromedial (about 8 o'clock), on the LV wall
+     from the apical third to mid-cavity. */
+function ctValves() {
+  const H = HV, M = H.mo, u = M.u, apU = p3([0, 0, 0], u, -1);
+  const eAp = inPlane(s3(H.av, H.mv), u), eW = n3(x3(u, eAp));
+  const eT = inPlane(s3(H.tv, H.mv), u), eTW = n3(x3(u, eT));
+  const mix = (a, b, f) => n3(p3(p3([0, 0, 0], a, 1 - f), b, f));
+  const leaf = (h, closed, open, ew, L, W) => ({ h, closed, open, ew, L, W });
+  const V = { leaves: [], cusps: [], pms: [] };
+  /* mitral */
+  V.leaves.push(leaf(p3(H.mv, eAp, 13), n3(p3(p3([0, 0, 0], eAp, -1), apU, .55)), n3(p3(apU, eAp, .25)), eW, 24, 13));
+  V.leaves.push(leaf(p3(H.mv, eAp, -13), n3(p3(eAp, apU, .55)), n3(p3(apU, eAp, -.3)), eW, 14, 13));
+  /* tricuspid: septal leaflet on the LV side, anterior on the free wall */
+  V.leaves.push(leaf(p3(H.tv, eT, -14), n3(p3(eT, apU, .45)), n3(p3(apU, eT, -.25)), eTW, 15, 13));
+  V.leaves.push(leaf(p3(H.tv, eT, 14), n3(p3(p3([0, 0, 0], eT, -1), apU, .45)), n3(p3(apU, eT, .3)), eTW, 20, 13));
+  /* aortic cusps */
+  const ra = n3(s3(H.ao, H.av)), b1 = inPlane(eAp, ra), b2 = n3(x3(ra, b1));
+  for (let k = 0; k < 3; k++) { const f = k * TAU / 3, rad = n3(p3(p3([0, 0, 0], b1, Math.cos(f)), b2, Math.sin(f)));
+    V.cusps.push(leaf(p3(H.av, rad, 11), n3(p3(p3([0, 0, 0], rad, -1), ra, .2)), n3(p3(ra, rad, .12)), n3(x3(ra, rad)), 11, 8)); }
+  /* papillary muscles at the endocardium, found by walking out from the LV axis */
+  const eA = inPlane([0, 1, 0], u); let eL = n3(x3(u, eA)); if (eL[0] > 0) eL = p3([0, 0, 0], eL, -1);   /* patient's left (RAS x is right) */
+  const aPm = .42 * M.aBase, axisPt = a => p3(H.lvC, u, M.aApex + a);
+  const lab = q => { const x = Math.round(q[0] / H.sp), y = Math.round(q[1] / H.sp), z = Math.round(q[2] / H.sp); return (x < 0 || y < 0 || z < 0 || x >= H.nx || y >= H.ny || z >= H.nz) ? 0 : H.L[x + H.nx * (y + H.ny * z)]; };
+  for (const dir of [n3(p3(p3([0, 0, 0], eL, Math.cos(.28)), eA, -Math.sin(.28))), n3(p3(p3([0, 0, 0], eL, -Math.cos(.28)), eA, -Math.sin(.28)))]) {
+    let rE = 8; while (rE < 45 && lab(p3(axisPt(aPm), dir, rE)) === 3) rE += 1;
+    const base = p3(axisPt(aPm - 16), dir, rE + 1), tip = p3(axisPt(aPm + 14), dir, rE - 6);
+    V.pms.push({ a: base, b: tip, r: 5.5 });
+  }
+  return V;
+}
+/* is q (end-diastolic mm) inside a leaflet whose opening is f (0 closed, 1 open)? */
+function onLeaf(q, lf, f) {
+  const dir = n3(p3(p3([0, 0, 0], lf.closed, 1 - f), lf.open, f)), rel = s3(q, lf.h), t = d3(rel, dir);
+  if (t < 0 || t > lf.L) return false;
+  const wv = d3(rel, lf.ew); if (Math.abs(wv) > lf.W * (1 - .45 * (t / lf.L) ** 2)) return false;
+  return Math.abs(d3(rel, x3(dir, lf.ew))) < 1.1 + .5 * (t / lf.L);
+}
+function inCapsule(q, a, b, r) { const ab = s3(b, a), t = clamp(d3(s3(q, a), ab) / d3(ab, ab), 0, 1), cpt = p3(a, ab, t); return Math.hypot(q[0] - cpt[0], q[1] - cpt[1], q[2] - cpt[2]) < r * (1 - .35 * t); }
 /* label → [echogenicity, opaque] */
 function ctTissue(l, mvOpen) {
   if (l === 1) return .5; if (l === 11) return .42; if (l === 12) return .55; if (l === 9) return .4; if (l === 15) return .88; if (l === 16) return .3;
-  if (l === 13 || l === 14) return mvOpen > .3 ? .02 : .72;
   return l ? .02 : -1;
 }
 const CT_RASTER = document.createElement('canvas'); CT_RASTER.width = 300; CT_RASTER.height = 220;
@@ -2247,10 +2290,10 @@ const CT_G = CT_RASTER.getContext('2d'), CT_IMG = CT_G.createImageData(300, 220)
    Everything fades out beyond the pericardium, so the chest and the descending aorta stay still. */
 function ctMotion(q, c, ph) {
   const H = HV, M = H.mo, d = s3(q, H.lvC), al = d3(d, M.u), rv0 = p3(d, M.u, -al), r = Math.hypot(rv0[0], rv0[1], rv0[2]);
-  const fh = 1 - smooth((r - 50) / 25);
+  const spR = d3(rv0, M.rvP), wR = smooth((spR - 26) / 14), fh = 1 - smooth((r - 50 - 25 * wR) / 25);   /* the fade starts further out on the RV side, so the free wall moves fully */
   if (fh <= 0 || c <= 0 && bump(ph, .92, .06) <= 0) return q;
   const a = al - M.aApex, ab = M.aBase, at = ab + 55;
-  const w = smooth((d3(rv0, M.rvP) - 26) / 14);                       /* how far onto the RV side */
+  const w = wR;                                                       /* how far onto the RV side */
   const m = c * fh * lerp(14, 20, w);                                   /* AV-plane descent here */
   let as;
   if (a < ab - m) as = Math.max(0, a) * ab / (ab - m) + Math.min(0, a);
@@ -2269,7 +2312,7 @@ function ctMotion(q, c, ph) {
   let rad = p3(p3([0, 0, 0], e1, rr * Math.cos(th)), e2, rr * Math.sin(th));
   /* RV free wall towards the septum */
   const sp = d3(rad, M.rvP);
-  if (sp > 30) rad = p3(rad, M.rvP, (sp - 30) * .35 * c * fh * vent);
+  if (sp > 28) rad = p3(rad, M.rvP, (sp - 28) * .5 * c * fh * vent);
   return p3(p3(H.lvC, M.u, as + M.aApex), rad, 1);
 }
 function ctSlice(A, S, P, name) {
@@ -2282,7 +2325,11 @@ function ctSlice(A, S, P, name) {
     q = ctMotion(q, c, P.ph);
     const vx = Math.round(q[0] / H.sp), vy = Math.round(q[1] / H.sp), vz = Math.round(q[2] / H.sp);
     if (vx < 0 || vy < 0 || vz < 0 || vx >= H.nx || vy >= H.ny || vz >= H.nz) continue;
-    const lb = H.L[vx + H.nx * (vy + H.ny * vz)], e = ctTissue(lb, mvO); if (e < 0) continue;
+    const lb = H.L[vx + H.nx * (vy + H.ny * vz)]; let e = ctTissue(lb, mvO); if (e < 0) continue;
+    if (e < .05) { const V = H.valves;
+      if (lb === 3 && V.pms.some(m => inCapsule(q, m.a, m.b, m.r))) e = .5;
+      else if (Math.hypot(q[0] - H.mv[0], q[1] - H.mv[1], q[2] - H.mv[2]) < 34 || Math.hypot(q[0] - H.tv[0], q[1] - H.tv[1], q[2] - H.tv[2]) < 34) { if (V.leaves.some(lf => onLeaf(q, lf, mvO))) e = .8; }
+      if (e < .05 && Math.hypot(q[0] - H.av[0], q[1] - H.av[1], q[2] - H.av[2]) < 18 && V.cusps.some(lf => onLeaf(q, lf, P.av))) e = .75; }
     if (lb >= 2 && lb <= 6) { const a = acc[lb] || (acc[lb] = [0, 0, 0]); a[0] += x; a[1] += z; a[2]++; }
     const k = (j * 300 + i) * 4, v = Math.round(e * 255); o[k] = o[k + 1] = o[k + 2] = v; o[k + 3] = 255;
   } }
