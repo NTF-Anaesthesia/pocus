@@ -2196,6 +2196,8 @@ const HV = { ready: false };
     const av = cen((l, x, y, z) => l === 6 && [-2, -1, 1, 2].some(d => at(x + d, y, z) === 3 || at(x, y + d, z) === 3 || at(x, y, z + d) === 3));
     const ao = av && cen((l, x, y, z) => l === 6 && Math.hypot(x * sp - av[0], y * sp - av[1], z * sp - av[2]) < 35);
     Object.assign(HV, { L, nx, ny, nz, sp, lvC, axis, apex, mv: cen(l => l === 13), tv: cen(l => l === 14), av, ao, ra: cen(l => l === 4), rv: cen(l => l === 5), la: cen(l => l === 2) });
+    { const u = n3(p3([0, 0, 0], HV.axis, -1)), aApex = d3(s3(HV.apex, HV.lvC), u), aBase = d3(s3(HV.mv, HV.lvC), u) - aApex;
+      HV.mo = { u, aApex, aBase, rvP: inPlane(s3(HV.rv, HV.lvC), u) }; }
     HV.planes = ctPlanes(); HV.ready = true;
   } catch (e) { console.warn('heart volume', e); }
 })();
@@ -2232,6 +2234,44 @@ function ctTissue(l, mvOpen) {
 }
 const CT_RASTER = document.createElement('canvas'); CT_RASTER.width = 300; CT_RASTER.height = 220;
 const CT_G = CT_RASTER.getContext('2d'), CT_IMG = CT_G.createImageData(300, 220);
+/* Heart motion, as an inverse map: for a point in the current frame, where was that tissue at end-diastole?
+   c is ventricular emptying (0 end-diastole, 1 end-systole), from cyc.
+   - Long axis: the apex stays nearly still; the AV plane descends towards it (MAPSE about 14 mm on the mitral side,
+     TAPSE about 20 mm on the tricuspid side). The ventricles shorten into the space below the plane and the atria
+     lengthen above it, their roofs (the pulmonary veins and cavae) fixed.
+   - Short axis: myocardium is incompressible, so each radius r about the LV axis maps as r² → r² − Δ. The
+     endocardium moves in about 30% (FS), the epicardium about 15%, and the wall thickens about 30%. Less at the apex.
+   - RV: the free wall moves in towards the septum, by up to a third of its distance from it.
+   - Twist: the apex turns about 9° one way and the base 4° the other (left-handed helix, seen from the apex).
+   - Atrial kick: the atria contract slightly around the long axis.
+   Everything fades out beyond the pericardium, so the chest and the descending aorta stay still. */
+function ctMotion(q, c, ph) {
+  const H = HV, M = H.mo, d = s3(q, H.lvC), al = d3(d, M.u), rv0 = p3(d, M.u, -al), r = Math.hypot(rv0[0], rv0[1], rv0[2]);
+  const fh = 1 - smooth((r - 50) / 25);
+  if (fh <= 0 || c <= 0 && bump(ph, .92, .06) <= 0) return q;
+  const a = al - M.aApex, ab = M.aBase, at = ab + 55;
+  const w = smooth((d3(rv0, M.rvP) - 26) / 14);                       /* how far onto the RV side */
+  const m = c * fh * lerp(14, 20, w);                                   /* AV-plane descent here */
+  let as;
+  if (a < ab - m) as = Math.max(0, a) * ab / (ab - m) + Math.min(0, a);
+  else if (a < at) as = ab + (a - (ab - m)) * (at - ab) / (at - ab + m);
+  else as = a;
+  const vent = 1 - smooth((a - (ab - m) + 6) / 12);
+  /* twist: rotate the radial vector about the long axis */
+  const fa = clamp(a / ab, 0, 1), th = -c * fh * vent * (9 * (1 - fa) - 4 * fa) * D2R;
+  const e1 = r > 1e-6 ? p3([0, 0, 0], rv0, 1 / r) : M.rvP, e2 = x3(M.u, e1);
+  let rr = r;
+  /* incompressible thickening */
+  const dl = 330 * c * fh * vent * smooth((a - 4) / 26);
+  rr = Math.sqrt(r * r + dl);
+  /* atrial kick */
+  rr *= 1 + .07 * fh * (1 - vent) * bump(ph, .92, .06);
+  let rad = p3(p3([0, 0, 0], e1, rr * Math.cos(th)), e2, rr * Math.sin(th));
+  /* RV free wall towards the septum */
+  const sp = d3(rad, M.rvP);
+  if (sp > 30) rad = p3(rad, M.rvP, (sp - 30) * .35 * c * fh * vent);
+  return p3(p3(H.lvC, M.u, as + M.aApex), rad, 1);
+}
 function ctSlice(A, S, P, name) {
   const H = HV, pl = H.planes[name], depth = S.depth, w = 280, h = Math.min(220, Math.round(depth * 10)), o = CT_IMG.data, ta = Math.tan(45 * D2R);
   o.fill(0);
@@ -2239,10 +2279,7 @@ function ctSlice(A, S, P, name) {
   for (let j = 0; j < h; j++) { const z = (j + .5) * 1.0; for (let i = 0; i < w; i++) {
     const x = (i + .5 - w / 2) * 1.0; if (Math.abs(x) > z * ta + 4) continue;
     let q = p3(p3(pl.O, pl.D, z), pl.Lt, x);
-    /* cardiac cycle: look further out in systole so the ventricles shrink towards the apex; atria swell with filling */
-    const d = s3(q, H.lvC), along = d3(d, H.axis), vent = smooth((along + 18) / 26);
-    const rad = p3(d, H.axis, -along), rs = 1 + .17 * c * vent - .06 * la * (1 - vent), ls = 1 + .11 * c * vent;
-    q = p3(p3(H.lvC, rad, rs), H.axis, along * ls);
+    q = ctMotion(q, c, P.ph);
     const vx = Math.round(q[0] / H.sp), vy = Math.round(q[1] / H.sp), vz = Math.round(q[2] / H.sp);
     if (vx < 0 || vy < 0 || vz < 0 || vx >= H.nx || vy >= H.ny || vz >= H.nz) continue;
     const lb = H.L[vx + H.nx * (vy + H.ny * vz)], e = ctTissue(lb, mvO); if (e < 0) continue;
@@ -2375,7 +2412,7 @@ function scope(cv, o) {
       for (const w of R.tw) { if (w.t0 === null) w.t0 = now; const f = smooth((now - w.t0) / w.dur); R.S[w.k] = lerp(w.a, w.b, f); if (f >= 1) w.done = true; }
       R.tw = R.tw.filter(w => !w.done);
       o.pre && o.pre(R);
-      const ph = R.S.fixPh != null ? R.S.fixPh : R.t * R.S.hr / 60;
+      const ph = R.S.fixPh != null ? R.S.fixPh : window.ECHO_PH != null ? window.ECHO_PH : R.t * R.S.hr / 60;
       R.P = cyc(ph);
       R.sono.render(R.S, (A, S, tm, P) => { R.out = R.view(A, S, tm, P); }, R.t, R.P);
       o.post && o.post(R);
