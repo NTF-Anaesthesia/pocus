@@ -2170,6 +2170,104 @@ function vSC(A, S, tm, P) {
   A.lab(-1, 2.2 + lo * 2, 'Liver');
   return H;
 }
+
+/* ---------- the five standard views from a real heart ----------
+   heart/ holds one chamber labelmap from a cardiac CT (ImageCAS case 1, STACOM 2025 labels; see media/README.md),
+   in RAS axes (x patient right, y anterior, z superior), 1.5 mm voxels. Each standard view is a plane through
+   landmarks read off the labels, oriented on screen as the ASE 2019 guideline shows it; there is no probe and no torso.
+   The slice is turned into the same grey echogenicity map the drawn views use, so the scanner image is formed the
+   same way. The cardiac cycle deforms the lookup (ventricles shorten towards the apex and narrow; atria swell as they
+   fill). Until the labels load, or if they fail, the drawn view is shown. */
+const HV = { ready: false };
+(async () => {
+  try {
+    const m = await (await fetch('heart/heart-volume.json')).json();
+    const img = new Image(); img.src = 'heart/heart-labels.png'; await img.decode();
+    const [nx, ny, nz] = m.size, [cols] = m.tiles, c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
+    const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(img, 0, 0);
+    const px = g.getImageData(0, 0, c.width, c.height).data, W = c.width, L = new Uint8Array(nx * ny * nz);
+    for (let z = 0; z < nz; z++) { const r = Math.floor(z / cols), cc = z % cols; for (let y = 0; y < ny; y++) for (let x = 0; x < nx; x++) L[x + nx * (y + ny * z)] = px[((r * ny + y) * W + (cc * nx + x)) * 4]; }
+    const sp = m.spacing_mm, V = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    const cen = f => { const s = [0, 0, 0]; let n = 0; for (let z = 0; z < nz; z++) for (let y = 0; y < ny; y++) for (let x = 0; x < nx; x++) if (f(L[x + nx * (y + ny * z)], x, y, z)) { s[0] += x; s[1] += y; s[2] += z; n++; } return n ? s.map(v => v / n * sp) : null; };
+    const lvC = m.lv_centre_mm, axis = m.lv_axis;
+    let apex = lvC, best = -1e9;
+    for (let z = 0; z < nz; z++) for (let y = 0; y < ny; y++) for (let x = 0; x < nx; x++) { const l = L[x + nx * (y + ny * z)]; if (l === 1 || l === 3) { const q = [x * sp, y * sp, z * sp], al = dot3(V(q, lvC), axis); if (al > best) { best = al; apex = q; } } }
+    const at = (x, y, z) => (x < 0 || y < 0 || z < 0 || x >= nx || y >= ny || z >= nz) ? 0 : L[x + nx * (y + ny * z)];
+    const av = cen((l, x, y, z) => l === 6 && [-2, -1, 1, 2].some(d => at(x + d, y, z) === 3 || at(x, y + d, z) === 3 || at(x, y, z + d) === 3));
+    const ao = av && cen((l, x, y, z) => l === 6 && Math.hypot(x * sp - av[0], y * sp - av[1], z * sp - av[2]) < 35);
+    Object.assign(HV, { L, nx, ny, nz, sp, lvC, axis, apex, mv: cen(l => l === 13), tv: cen(l => l === 14), av, ao, ra: cen(l => l === 4), rv: cen(l => l === 5), la: cen(l => l === 2) });
+    HV.planes = ctPlanes(); HV.ready = true;
+  } catch (e) { console.warn('heart volume', e); }
+})();
+const n3 = a => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+const x3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const d3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const s3 = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], p3 = (a, b, k = 1) => [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k];
+const inPlane = (v, n) => n3(p3(v, n, -d3(v, n)));
+/* Each plane: O (sector apex, mm), D (beam, down the screen), Lt (screen right). ASE 2019 screen conventions:
+   PLAX anterior at the top, base and aorta on the right; PSAX anterior at the top, patient's left on the right;
+   A4C apex at the top, LV on the right; subcostal 4C liver at the top, apex on the right. */
+function ctPlanes() {
+  const H = HV, ant = [0, 1, 0], left = [-1, 0, 0], sup = [0, 0, 1], P = {};
+  const mid = (a, b, k = .5) => p3(a, s3(b, a), k);
+  { const n = n3(x3(s3(H.av, H.apex), s3(H.ao, H.apex))), D = inPlane(p3([0, 0, 0], ant, -1), n);
+    let Lt = n3(x3(n, D)); if (d3(Lt, s3(H.av, H.apex)) < 0) Lt = p3([0, 0, 0], Lt, -1);
+    const C = mid(H.apex, mid(H.mv, H.av), .72); P.plax = { O: p3(C, D, -85), D, Lt }; }
+  { const n = n3(H.axis), C = p3(H.lvC, n, 12), D = inPlane(p3([0, 0, 0], ant, -1), n);
+    let Lt = n3(x3(n, D)); if (d3(Lt, left) < 0) Lt = p3([0, 0, 0], Lt, -1);
+    P.psax = { O: p3(C, D, -72), D, Lt }; }
+  { const vm = mid(H.mv, H.tv), D = n3(s3(vm, H.apex)), n = n3(x3(D, s3(H.mv, H.tv)));
+    let Lt = inPlane(s3(H.mv, H.tv), D); Lt = inPlane(Lt, n);
+    P.a4c = { O: p3(H.apex, D, -22), D, Lt }; }
+  { const vm = mid(H.mv, H.tv), C = mid(vm, H.lvC), n = n3(x3(s3(H.mv, H.tv), s3(mid(H.lvC, H.apex), vm)));
+    const D = inPlane(n3(p3(sup, ant, -.35)), n); let Lt = n3(x3(n, D)); if (d3(Lt, s3(H.apex, vm)) < 0) Lt = p3([0, 0, 0], Lt, -1);
+    P.sc4c = { O: p3(C, D, -110), D, Lt }; }
+  return P;
+}
+/* label → [echogenicity, opaque] */
+function ctTissue(l, mvOpen) {
+  if (l === 1) return .5; if (l === 11) return .42; if (l === 12) return .55; if (l === 9) return .4; if (l === 15) return .88; if (l === 16) return .3;
+  if (l === 13 || l === 14) return mvOpen > .3 ? .02 : .72;
+  return l ? .02 : -1;
+}
+const CT_RASTER = document.createElement('canvas'); CT_RASTER.width = 300; CT_RASTER.height = 220;
+const CT_G = CT_RASTER.getContext('2d'), CT_IMG = CT_G.createImageData(300, 220);
+function ctSlice(A, S, P, name) {
+  const H = HV, pl = H.planes[name], depth = S.depth, w = 280, h = Math.min(220, Math.round(depth * 10)), o = CT_IMG.data, ta = Math.tan(45 * D2R);
+  o.fill(0);
+  const c = P.c, la = P.la, mvO = P.mv, acc = {};
+  for (let j = 0; j < h; j++) { const z = (j + .5) * 1.0; for (let i = 0; i < w; i++) {
+    const x = (i + .5 - w / 2) * 1.0; if (Math.abs(x) > z * ta + 4) continue;
+    let q = p3(p3(pl.O, pl.D, z), pl.Lt, x);
+    /* cardiac cycle: look further out in systole so the ventricles shrink towards the apex; atria swell with filling */
+    const d = s3(q, H.lvC), along = d3(d, H.axis), vent = smooth((along + 18) / 26);
+    const rad = p3(d, H.axis, -along), rs = 1 + .17 * c * vent - .06 * la * (1 - vent), ls = 1 + .11 * c * vent;
+    q = p3(p3(H.lvC, rad, rs), H.axis, along * ls);
+    const vx = Math.round(q[0] / H.sp), vy = Math.round(q[1] / H.sp), vz = Math.round(q[2] / H.sp);
+    if (vx < 0 || vy < 0 || vz < 0 || vx >= H.nx || vy >= H.ny || vz >= H.nz) continue;
+    const lb = H.L[vx + H.nx * (vy + H.ny * vz)], e = ctTissue(lb, mvO); if (e < 0) continue;
+    if (lb >= 2 && lb <= 6) { const a = acc[lb] || (acc[lb] = [0, 0, 0]); a[0] += x; a[1] += z; a[2]++; }
+    const k = (j * 300 + i) * 4, v = Math.round(e * 255); o[k] = o[k + 1] = o[k + 2] = v; o[k + 3] = 255;
+  } }
+  CT_G.putImageData(CT_IMG, 0, 0);
+  const g = A.g; g.save(); g.imageSmoothingEnabled = true; g.drawImage(CT_RASTER, 0, 0, w, h, -w / 20, 0, w / 10, h / 10); g.restore();
+  /* labels sit in the middle of each chamber as cut by this plane */
+  return (code, t) => { const a = acc[code]; if (a && a[2] > 40) A.lab(a[0] / a[2] / 10, a[1] / a[2] / 10, t); };
+}
+function ctView(name, fallback) {
+  return (A, S, tm, P) => {
+    if (!HV.ready) return fallback(A, S, tm, P);
+    const H = HV;
+    if (name === 'sc4c') { A.fill(.36); for (let i = 0; i < 6; i++) A.el(-6 + i * 2.6, 2 + hsh(i) * 3, .3 + hsh(i + 4) * .25, .2, .06); }
+    else chestWall(A, name === 'a4c' ? 1.2 : 1.35);
+    const lab = ctSlice(A, S, P, name);
+    lab(5, 'RV'); lab(3, 'LV'); lab(2, 'LA'); lab(4, 'RA'); if (name === 'plax') lab(6, 'Ao'); if (name === 'a4c') lab(6, 'DAo');
+    if (name === 'a4c') { const r = s3(H.apex, H.planes.a4c.O); A.lab(d3(r, H.planes.a4c.Lt) / 10, d3(r, H.planes.a4c.D) / 10 - .6, 'Apex'); }
+    if (name === 'sc4c') A.lab(-4, 1.6, 'Liver');
+    return {};
+  };
+}
+const ctPLAX = ctView('plax', vPLAX), ctPSAX = ctView('psax', vPSAX), ctA4C = ctView('a4c', vA4C), ctSC = ctView('sc4c', vSC);
 /* ---------- IVC long axis ---------- */
 function ivcState(I, tt) {
   const b = .5 - .5 * Math.cos(TAU * tt * I.rr / 60); let base = I.d, v = I.v / 100;
@@ -2401,8 +2499,8 @@ const RO = items => items.map(([k, v, c]) => `<div><small>${k}</small><b class="
 /* =====================================================================
    HERO, DIVIDERS, END
    ===================================================================== */
-scope($('#heroP'), { view: vPLAX, S: { labels: true, depth: 15, title: 'PLAX' } });
-scope($('#heroA'), { view: vA4C, S: { labels: true, depth: 16, title: 'A4C' } });
+scope($('#heroP'), { view: ctPLAX, S: { labels: true, depth: 15, title: 'PLAX' } });
+scope($('#heroA'), { view: ctA4C, S: { labels: true, depth: 16, title: 'A4C' } });
 $('#d1Torso').innerHTML = torsoSVG({ inner: Object.keys(WIN).filter(k => k !== 'psax').map(k => probeSVG(WIN[k].x, WIN[k].y, WIN[k].m)).join('') + `<text class="lbl" x="186" y="112">PLAX/PSAX</text><text class="lbl" x="232" y="190">A4C</text><text class="lbl" x="172" y="250">SC4C</text><text class="lbl" x="92" y="250">IVC</text>` });
 scope($('#d2US'), { view: vPSAX, S: { depth: 14, title: 'PSAX · mid-papillary' } });
 scope($('#d3US'), { view: vSC, S: { depth: 17, peri: 1.3, title: 'Subcostal 4C', labels: true } });
@@ -2418,26 +2516,26 @@ function viewSlide(cvId, tabId, capId, defs) {
   return R;
 }
 viewSlide('vPLAX', 'vPLAXt', 'vPLAXc', [
-  { v: vPLAX, S: { title: 'PLAX · on axis' }, c: 'On axis: LV horizontal, mitral and aortic valves in plane, descending aorta behind the LA. Schematic, not a real scan.' },
+  { v: ctPLAX, S: { title: 'PLAX · on axis' }, c: 'On axis: LV horizontal, mitral and aortic valves in plane, descending aorta behind the LA. Synthetic image from a real heart (CT labels), not a real scan.' },
   { v: vPLAX, S: { title: 'PLAX · LV sloping', slope: .9 }, c: 'LV slopes steeply: wrong rib space. Move one space up or down until it lies flat.' },
   { v: vPLAX, S: { title: 'PLAX · no aortic valve', noAV: 1 }, c: 'Only LV and mitral valve: rotate slightly towards the right shoulder and slide closer to the sternum.' }
 ]);
 viewSlide('vPSAX', 'vPSAXt', 'vPSAXc', [
-  { v: vPSAX, S: { title: 'PSAX · mid-papillary', depth: 14 }, c: 'Round LV, two papillary muscles, RV a crescent. The FoCUS standard level.' },
+  { v: ctPSAX, S: { title: 'PSAX · mid-papillary', depth: 14 }, c: 'Round LV, two papillary muscles, RV a crescent. The FoCUS standard level.' },
   { v: vPSAX, S: { title: 'PSAX · off-axis', depth: 14, oval: 1 }, c: 'Oval LV: an oblique cut. Rotate a few degrees until it is round. Never call a D-sign on this.' },
   { v: vPSAX, S: { title: 'PSAX · mitral level', depth: 14, mitral: 1 }, c: "The 'fish mouth' of the mitral valve: tilt further towards the apex to reach the papillary muscles." },
   { v: vPSAX, S: { title: 'PSAX · D-shape', depth: 14, rvlv: 1.15, dsP: .85, lvd: 4.0, lvs: 2.4 }, c: 'D-shaped LV: the septum is flattened throughout the cycle (pressure overload) and the RV is large.' },
   { v: vPSAX, S: { title: 'PSAX · territories', depth: 14, terr: 1 }, c: 'Approximate territories: LAD anterior and anteroseptal; RCA inferior and inferoseptal; LCx inferolateral and anterolateral. They overlap.' }
 ]);
 viewSlide('vA4C', 'vA4Ct', 'vA4Cc', [
-  { v: vA4C, S: { title: 'A4C · true apex' }, c: 'Apex at the top, tapered; septum vertical; LV about 1.5–2× longer than wide. Schematic, not a real scan.' },
+  { v: ctA4C, S: { title: 'A4C · true apex' }, c: 'Apex at the top, tapered; septum vertical; LV about 1.5–2× longer than wide. Synthetic image from a real heart (CT labels), not a real scan.' },
   { v: vA4C, S: { title: 'A4C · foreshortened', fs: 1 }, c: 'Foreshortened: rounded, thick apex and a short, globular LV. It overestimates function and hides apical akinesis.' },
   { v: vA4C, S: { title: 'A4C · 5-chamber', five: 1 }, c: 'An LVOT and aortic valve appear in the middle: tilt the beam posteriorly. (Useful on purpose for LVOT VTI.)' },
   { v: vA4C, S: { title: 'A4C · septum tilted', tilt: .8 }, c: 'Chambers lean: slide until the apex is centred, then rotate slightly.' },
   { v: vA4C, S: { title: 'A4C · RV cut off', dx: 3.2, shadow: -.6 }, c: 'The RV free wall is cut off, so the RV looks small. Move medially or rotate before comparing RV with LV.' }
 ]);
 viewSlide('vSC', 'vSCt', 'vSCc', [
-  { v: vSC, S: { title: 'Subcostal 4C', depth: 17 }, c: 'Liver at the top, then RV free wall, RV, septum, LV. Cardiac preset: atria on the left of the screen, apex to the right.' },
+  { v: ctSC, S: { title: 'Subcostal 4C', depth: 17 }, c: 'Liver at the top, then RV free wall, RV, septum, LV. Cardiac preset: atria on the left of the screen, apex to the right.' },
   { v: vSC, S: { title: 'Subcostal · liver only', depth: 17, liverOnly: 1 }, c: 'Only liver: flatten the probe, push deeper, increase depth, bend the knees.' },
   { v: vIVC, S: { title: 'IVC · long axis', depth: 13, ivc: Object.assign({}, IVC0) }, c: 'IVC entering the RA with a hepatic vein joining it. Measure about 1–2 cm from the cavo-atrial junction, just caudal to the hepatic vein (dashed line), at end-expiration.' },
   { v: vIVC, S: { title: 'IVC · off-centre', depth: 13, offc: 1, ivc: Object.assign({}, IVC0) }, c: 'Cylinder effect: the beam cuts the IVC off-centre, so it looks narrow and collapses oddly. Fan to the widest diameter.' }
