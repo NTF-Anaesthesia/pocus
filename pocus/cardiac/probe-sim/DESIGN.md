@@ -88,6 +88,32 @@ The result has Rayleigh speckle with the right anisotropy (fine axially, elongat
 edges that come from contrast and reflection rather than outlines, and shadows that are soft because the shadow
 test is a signed distance to bone or lung along the ray.
 
+## Heart from a labelled CT (1 Nov 2026)
+
+When `volume/` is present (it is committed), the heart is a real chamber labelmap rather than the analytic SDFs above;
+the torso, ribs, lung, liver and IVC stay analytic. `?novol` on the dev page falls back to the parametric heart.
+
+- Source: STACOM 2025 public cardiac CT labelmaps (Hansen et al., MIT licence,
+  https://github.com/Bjonze/Public-Cardiac-CT-Dataset), computed on the public ImageCAS CT dataset with TotalSegmentator's
+  heart-chamber model (non-commercial licence; this is a free teaching site). **Case used: ImageCAS case 1**
+  (`1.img.nii.gz`, from `all_full_laa_segmentations_id.txt`). Labels only; no image data. Full record in
+  `media/README.md`.
+- Build: `python3 -I tools/heart-volume.py 1.img.nii.gz pocus/cardiac/probe-sim/volume --spacing 1.5`. The tool
+  reorients to RAS first: the source files are LAS (a mirror image), and the renderer places the volume with a pure
+  rotation, which cannot undo a mirror.
+- Placement (`SliceRenderer.loadVolume`): the LV long axis maps onto `HEART.e3` and the LV→RV direction onto the torso
+  RV direction; the LV centre sits at the torso heart centre. Landmarks are then read off the labels (mitral and
+  tricuspid valve centres, aortic annulus and root, RA, epicardial apex, descending aorta) and the torso's IVC and
+  descending aorta are run through them.
+- Targets (`computeTargets`) are planes through those landmarks: PLAX holds the apex, aortic valve and aortic root (the
+  window is the skin point on that plane nearest the 3rd–4th space); PSAX is perpendicular to the long axis at
+  papillary level from the same window; A4C holds the apex and both valves; subcostal holds the valves and the apex;
+  IVC is sagittal along the IVC into the RA. Fitted poses stay within the slider limits.
+- Known gaps: this case's LV axis is about 30° more horizontal than the torso's heart axis, so the rotation swings the
+  descending aorta just right of the midline; the posterior mediastinum box and lung bases still draw straight pleural
+  lines in PLAX, PSAX and IVC; the subcostal and IVC liver windows are thinner than in life. `?debug=3` colours each
+  chamber (LV red, RV blue, LA orange, RA cyan, aorta yellow, PA violet).
+
 ## Calibration
 
 Render each target pose and compare with the site's real stills (`media/a4c-normal.jpg`, `psax-normal.jpg`,
