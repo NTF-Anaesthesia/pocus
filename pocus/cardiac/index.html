@@ -1665,6 +1665,107 @@ const STREAK = (() => {
 })();
 const hsh = i => { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
 
+/* ---------- scanner image formation (WebGL2), shared by every sector ----------
+   The view functions draw a grey echogenicity map. Pass 1 lays scatterers along 256 beam lines × 1024 depth samples:
+   each takes its strength from the map and a random amplitude and phase (blood re-randomised every few frames, tissue
+   held still), and interfaces facing the beam add a specular echo. Pass 2 sums them through the pulse's point-spread
+   function (a short axial wave packet on two carriers, a lateral beam that widens with depth), so the speckle is an
+   interference pattern; then TGC, gain, log compression. One hidden WebGL canvas serves all sectors, because browsers
+   allow only a few WebGL contexts per page. Without WebGL2 the dot renderer below is used instead. */
+const ECHO_GL = (() => {
+  const cv = document.createElement('canvas'), gl = cv.getContext('webgl2', { antialias: false, premultipliedAlpha: false });
+  if (!gl) return null;
+  const VS = `#version 300 es
+in vec2 a; out vec2 v; void main(){ v = a; gl_Position = vec4(a, 0., 1.); }`;
+  const FIELD = `#version 300 es
+precision highp float; in vec2 v; out vec4 o;
+uniform sampler2D u_map; uniform vec2 u_mapRes, u_apex; uniform float u_R, u_sector, u_time;
+float hash(vec3 p){ p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3)); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+float E(vec2 q){ return texture(u_map, q / u_mapRes).r; }
+void main(){
+  float ang = v.x * u_sector, rf = v.y * 0.5 + 0.5; vec2 dir = vec2(sin(ang), cos(ang));
+  vec2 q = u_apex + dir * rf * u_R;
+  float e = E(q);
+  float blood = 1.0 - smoothstep(0.05, 0.11, e);
+  vec3 cell = vec3(floor(q / 1.3), floor(u_time * 14.0) * blood);
+  float a1 = hash(cell), a2 = hash(cell + 17.0), a3 = hash(cell + 41.0), a4 = hash(cell + 7.0);
+  float slow = 0.8 + 0.4 * hash(vec3(floor(q / 23.0), 3.0));
+  float amp = e * slow * (0.35 + 0.65 * (a1 + a4));
+  /* specular echo where the map steps and the step faces the beam */
+  vec2 gr = vec2(E(q + vec2(1.5, 0.0)) - E(q - vec2(1.5, 0.0)), E(q + vec2(0.0, 1.5)) - E(q - vec2(0.0, 1.5)));
+  float gm = length(gr), refl = 0.0;
+  if (gm > 0.02) { float c = abs(dot(gr / gm, dir)); refl = smoothstep(0.03, 0.35, gm) * (0.1 + 0.9 * c * c) * (0.5 + a3); }
+  amp += refl * 0.55;
+  float ph = 6.2831853 * a2;
+  o = vec4(clamp(amp * cos(ph) * 0.45, -0.5, 0.5) + 0.5, clamp(amp * sin(ph) * 0.45, -0.5, 0.5) + 0.5, clamp(refl * 0.25, 0.0, 1.0), 1.0);
+}`;
+  const IMAGE = `#version 300 es
+precision highp float; in vec2 v; out vec4 o;
+uniform sampler2D u_field; uniform vec2 u_res, u_fieldRes, u_apex; uniform float u_top, u_R, u_depth, u_sector, u_gain;
+float hash2(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+void main(){
+  vec2 px = vec2(gl_FragCoord.x, u_top - gl_FragCoord.y);
+  vec2 dd = px - u_apex; float dist = length(dd), ang = atan(dd.x, dd.y);
+  if (dist > u_R || abs(ang) > u_sector || dd.y < 0.0) { o = vec4(0.0, 0.0, 0.0, 1.0); return; }
+  float r = dist / u_R * u_depth;
+  vec2 uv = vec2(ang / (2.0 * u_sector) + 0.5, dist / u_R);
+  float dr = u_depth / u_fieldRes.y, dth = 2.0 * u_sector / u_fieldRes.x;
+  const float K = 6.2831853 / 0.064, K2 = 6.2831853 / 0.082;
+  float sigA = 0.055, sigL = max(0.06, 2.2 * dth * r);
+  float re = 0.0, im = 0.0, re2 = 0.0, im2 = 0.0, spec = 0.0, wsum = 0.0;
+  for (int j = -5; j <= 5; j++) {
+    float dl = float(j) * dth * r, wl = exp(-dl * dl / (2.0 * sigL * sigL));
+    if (wl < 0.02) continue;
+    for (int i = -10; i <= 10; i++) {
+      float dz = float(i) * dr, wa = exp(-dz * dz / (2.0 * sigA * sigA));
+      vec4 f = texture(u_field, uv + vec2(float(j) / u_fieldRes.x, float(i) / u_fieldRes.y));
+      vec2 sc = (f.rg - 0.5) / 0.45; float w = wa * wl, ck = cos(K * dz), sk = sin(K * dz), ck2 = cos(K2 * dz), sk2 = sin(K2 * dz);
+      re += w * (sc.x * ck - sc.y * sk); im += w * (sc.x * sk + sc.y * ck);
+      re2 += w * (sc.x * ck2 - sc.y * sk2); im2 += w * (sc.x * sk2 + sc.y * ck2);
+      spec += w * f.b * 2.0; wsum += w;
+    }
+  }
+  float env = (length(vec2(re, im)) + length(vec2(re2, im2))) * 0.5 / max(wsum, 1e-3) * 2.6;
+  float I = env + spec / max(wsum, 1e-3) * 0.7;
+  I = I * exp(-0.06 * r) * (1.0 + 0.06 * r) * u_gain + 0.008 * hash2(px);
+  float y = pow(clamp(log(1.0 + 45.0 * I) / log(46.0), 0.0, 1.0), 1.25);
+  y *= 1.0 - 0.3 * pow(abs(ang) / u_sector, 6.0);
+  o = vec4(vec3(y), 1.0);
+}`;
+  const sh = (t, src) => { const x = gl.createShader(t); gl.shaderSource(x, src); gl.compileShader(x); if (!gl.getShaderParameter(x, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(x)); return x; };
+  const prog = fs => { const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(p); if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p)); return p; };
+  let pF, pI;
+  try { pF = prog(FIELD); pI = prog(IMAGE); } catch (e) { console.warn('echo renderer', e); return null; }
+  const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+  for (const p of [pF, pI]) { const l = gl.getAttribLocation(p, 'a'); gl.useProgram(p); gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, 2, gl.FLOAT, false, 0, 0); }
+  const U = (p, n) => Object.fromEntries(n.map(k => [k, gl.getUniformLocation(p, k)]));
+  const uF = U(pF, ['u_map', 'u_mapRes', 'u_apex', 'u_R', 'u_sector', 'u_time']), uI = U(pI, ['u_field', 'u_res', 'u_fieldRes', 'u_apex', 'u_top', 'u_R', 'u_depth', 'u_sector', 'u_gain']);
+  const tex = (w, h) => { const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); if (w) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; };
+  const FW = 256, FH = 1024, mapT = tex(), fieldT = tex(FW, FH), fbo = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, fieldT, 0); gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  return {
+    cv,
+    /* map: the echogenicity canvas (device px); apex, R in device px; returns the canvas holding the image top-left */
+    draw(map, w, h, apex, R, sector, depth, gain, time) {
+      if (cv.width < w || cv.height < h) { cv.width = Math.max(cv.width, w); cv.height = Math.max(cv.height, h); }
+      gl.bindTexture(gl.TEXTURE_2D, mapT); gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, map);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.viewport(0, 0, FW, FH); gl.useProgram(pF);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, mapT); gl.uniform1i(uF.u_map, 0);
+      gl.uniform2f(uF.u_mapRes, map.width, map.height); gl.uniform2f(uF.u_apex, apex[0], apex[1]); gl.uniform1f(uF.u_R, R); gl.uniform1f(uF.u_sector, sector); gl.uniform1f(uF.u_time, time);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, cv.height - h, w, h); gl.useProgram(pI);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, fieldT); gl.uniform1i(uI.u_field, 0);
+      gl.uniform2f(uI.u_res, w, h); gl.uniform2f(uI.u_fieldRes, FW, FH); gl.uniform2f(uI.u_apex, apex[0], apex[1]); gl.uniform1f(uI.u_top, cv.height);
+      gl.uniform1f(uI.u_R, R); gl.uniform1f(uI.u_depth, depth); gl.uniform1f(uI.u_sector, sector); gl.uniform1f(uI.u_gain, gain);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      return cv;
+    }
+  };
+})();
+
 /* ---------- sector renderer ----------
    The view functions draw a grey tissue map (echogenicity 0 to 1) off screen. The screen is then stippled with
    monochrome dots from a fixed field of scatterers laid out along the beam lines: the brighter the tissue, the more of
@@ -1723,6 +1824,23 @@ class Sono {
     A.fill(S.bg == null ? .22 : S.bg);
     view(A, S, tm, P);
     mg.restore();
+    if (ECHO_GL && !this.noGL) {
+      try {
+        const t0 = performance.now();
+        const out = ECHO_GL.draw(this.map, this.cv.width, this.cv.height, [ax * d, ay * d], R * d, a, S.depth, .45 + gain * 1.1, tm);
+        g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(out, 0, 0, this.cv.width, this.cv.height, 0, 0, this.cv.width, this.cv.height);
+        /* a device too slow for it (over 60 ms a frame, averaged over the first 20 frames) falls back to dots */
+        this.glT = (this.glT || 0) + performance.now() - t0; this.glN = (this.glN || 0) + 1;
+        if (this.glN === 20 && this.glT / 20 > 60 && !window.ECHO_FORCE_GL) this.noGL = true;
+      } catch (e) { console.warn('echo renderer', e); this.noGL = true; }
+    }
+    if (!ECHO_GL || this.noGL) this.dots(gf, tm, ax, ay, a);
+    g.setTransform(d, 0, 0, d, 0, 0); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
+    this.overlays(S, labs, ol, s, ax, ay);
+  }
+  /* fallback when WebGL2 is not available: stipple the sector with dots */
+  dots(gf, tm, ax, ay, a) {
+    const g = this.g, d = this.dpr, mg = this.mg;
     const M = mg.getImageData(0, 0, this.map.width, this.map.height).data;
     /* 2. dots */
     const im = this.img, o = im.data, CW = this.cv.width, CH = this.cv.height, sc = this.sc;
@@ -1744,7 +1862,9 @@ class Sono {
       }
     }
     g.setTransform(1, 0, 0, 1, 0, 0); g.putImageData(im, 0, 0);
-    g.setTransform(d, 0, 0, d, 0, 0); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
+  }
+  overlays(S, labs, ol, s, ax, ay) {
+    const g = this.g, W = this.W, H = this.H;
     /* overlays */
     g.font = '12px ui-monospace,Menlo,Consolas,monospace'; g.textBaseline = 'middle';
     g.fillStyle = 'rgba(255,255,255,.5)';
@@ -1790,7 +1910,7 @@ function smokeDots(A, tm, cx, cy, rx, ry, n = 46) {
   for (let i = 0; i < n; i++) {
     const u = (hsh(i) + tm * .05 * (.5 + hsh(i + 9))) % 1, v = hsh(i + 50) * 2 - 1;
     const x = cx + (u * 2 - 1) * rx * .9, y = cy + v * ry * .8 * Math.sqrt(Math.max(0, 1 - (u * 2 - 1) ** 2));
-    A.el(x, y, .09, .06, .32 + .2 * hsh(i + 3));
+    A.el(x, y, .12, .08, .1 + .06 * hsh(i + 3));
   }
 }
 
