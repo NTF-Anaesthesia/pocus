@@ -125,26 +125,6 @@ Find the dark fluid stripe between the liver and kidney in this published trauma
 - Licence for video and derived poster: [CC BY 2.0](https://creativecommons.org/licenses/by/2.0/).
 - Changes: Non-square pixels normalised to 640 × 480 while preserving the original 4:3 display geometry; the source import already omitted its identifying header. Transcoded to H.264 MP4 without changing sequence or playback speed. Audio and source container metadata removed. JPEG poster extracted at 0.15 seconds; it is a still from the processed clinical clip.
 
-## Probe simulator heart (labelled CT, no images)
-
-The cardiac probe simulator (`cardiac/probe-sim/volume/`) takes its heart from one chamber labelmap: label values
-only, no CT image data, resampled to 1.5 mm and converted by `tools/heart-volume.py` into the label and distance atlases
-the renderer samples. Everything the learner sees is still synthesised from those labels; no scan pixels are shown.
-
-- Labelmap: STACOM 2025 public cardiac CT labelmaps, Hansen et al., "A Public Cardiac CT Dataset Featuring the Left
-  Atrial Appendage", STACOM workshop, MICCAI 2025 ([dataset and code](https://github.com/Bjonze/Public-Cardiac-CT-Dataset),
-  MIT licence). Case used: **ImageCAS case 1** (`1.img.nii.gz`, listed in `all_full_laa_segmentations_id.txt`: complete
-  chambers and appendage; only the aorta reaches the scan edge).
-- Underlying scans: the public ImageCAS coronary CT angiography dataset
-  ([GitHub](https://github.com/XiaoweiXu/ImageCAS-A-Large-Scale-Dataset-and-Benchmark-for-Coronary-Artery-Segmentation-based-on-CT),
-  [Kaggle](https://www.kaggle.com/datasets/xiaoweixumedicalai/imagecas)). Anonymised research scans; no identifiers are
-  carried in the labelmap and none are stored here.
-- Segmentation model: the labelmaps were produced with TotalSegmentator's heart-chamber model, which is released under a
-  non-commercial licence. This site is a free teaching resource with no commercial use.
-- Changes: reoriented to RAS, resampled with nearest neighbour to 1.5 mm, cropped to the heart, thin walls, valve
-  planes, pericardium and an epicardial fat band added, distance field computed. The source archive and all other cases
-  were not committed.
-
 ## Verification
 
 All MP4 files decode successfully in FFmpeg; durations and frame geometry are recorded in the JSON manifest. Source and final sampled frames were inspected. Metadata/audio stripping was verified. Every frame of the eight masked videos was checked: the identifying header region is fully black throughout. File hashes bind the attribution records to the delivered assets. Browser playback should be included in the parent publication review.
