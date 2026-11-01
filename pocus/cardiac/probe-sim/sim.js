@@ -176,7 +176,7 @@ float ivcR(){ return 1.05 - 0.35 * u_breath; }
 float sdIVC(vec3 p){ vec3 a = raCentreWorld() + vec3(0.0, 1.2, 0.3); return sdCapsule(p, a, a + vec3(-0.5, 20.0, 2.0), ivcR()); }
 float sdHepVein(vec3 p){ vec3 a = raCentreWorld() + vec3(-0.5, 3.0, 0.6); return sdCapsule(p, a, a + vec3(-4.0, 3.0, 2.5), 0.45); }
 uniform vec3 u_dao, u_daoDir;   // descending aorta: a point and the caudal direction, from the volume
-float sdDescAo(vec3 p){ if (u_hasVol == 1) return sdCapsule(p, u_dao - u_daoDir * 15.0, u_dao + u_daoDir * 25.0, 1.15); return sdCapsule(p, vec3(1.5, -2.0, 12.8), vec3(1.5, 30.0, 12.8), 1.15); }
+float sdDescAo(vec3 p){ if (u_hasVol == 1) return sdCapsule(p, u_dao - u_daoDir * 4.0, u_dao + u_daoDir * 25.0, 1.15); return sdCapsule(p, vec3(1.5, -2.0, 12.8), vec3(1.5, 30.0, 12.8), 1.15); }
 float sdLung(vec3 p, float c){
   float cavity = chestR(p, 2.8);                                              // inside the rib cage
   cavity = max(cavity, 1.5 - p.y);                                            // apex of the lung
@@ -432,16 +432,23 @@ class SliceRenderer {
       gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, filter); gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, filter);
       for (const w of [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T, gl.TEXTURE_WRAP_R]) gl.texParameteri(gl.TEXTURE_3D, w, gl.CLAMP_TO_EDGE); return t; };
     const labelTex = tex3(labels, gl.NEAREST), sdfTex = tex3(sdf, gl.LINEAR);
-    /* orientation: the volume's LV axis goes to the torso heart axis; the LV→RV direction to the torso RV direction */
+    /* orientation. A volume in RAS (heart-volume.py writes it) goes in as it was scanned, supine: torso x (patient's
+       left) = −R, y (caudal) = −S, z (posterior) = −A. The heart keeps its real tilt and every structure around it (the
+       descending aorta left of the spine, the IVC to the right) stays on its own side. Anything else (the synthetic
+       test volume) has its LV axis put on the torso heart axis and its LV→RV direction on the torso RV direction. */
     const lvC = meta.lv_centre_mm, axis = norm(meta.lv_axis);
-    const rvC = meta.centroids_mm['5'] || lvC, laC = meta.centroids_mm['2'] || lvC;
-    let rvDir = add(rvC, mul(lvC, -1)); rvDir = norm(add(rvDir, mul(axis, -dot(rvDir, axis))));
-    const vF = [rvDir, cross(axis, rvDir), axis];                                     // volume frame columns
-    const tRv = norm(add(mul(HEART.e1, 1.1), mul(HEART.e2, 1.0)));
-    const tF = [tRv, cross(HEART.e3, tRv), HEART.e3];                                  // torso heart frame columns
-    /* R maps volume directions to torso directions: R = tF · vFᵀ (column-major mat3 for GL) */
-    const R = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
-    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) for (let k = 0; k < 3; k++) R[i][j] += tF[k][i] * vF[k][j];
+    let R;
+    if (String(meta.axes || '').startsWith('RAS')) R = [[-1, 0, 0], [0, 0, -1], [0, -1, 0]];
+    else {
+      const rvC = meta.centroids_mm['5'] || lvC;
+      let rvDir = add(rvC, mul(lvC, -1)); rvDir = norm(add(rvDir, mul(axis, -dot(rvDir, axis))));
+      const vF = [rvDir, cross(axis, rvDir), axis];                                   // volume frame columns
+      const tRv = norm(add(mul(HEART.e1, 1.1), mul(HEART.e2, 1.0)));
+      const tF = [tRv, cross(HEART.e3, tRv), HEART.e3];                                // torso heart frame columns
+      /* R maps volume directions to torso directions: R = tF · vFᵀ */
+      R = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+      for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) for (let k = 0; k < 3; k++) R[i][j] += tF[k][i] * vF[k][j];
+    }
     const Rv = v => [R[0][0] * v[0] + R[0][1] * v[1] + R[0][2] * v[2], R[1][0] * v[0] + R[1][1] * v[1] + R[1][2] * v[2], R[2][0] * v[0] + R[2][1] * v[1] + R[2][2] * v[2]];
     const origin = add(HEART.centre, mul(Rv(lvC), -0.1));                          // LV centre sits at the torso heart centre
     const raC = meta.centroids_mm['4'] ? add(origin, mul(Rv(meta.centroids_mm['4']), 0.1)) : null;
@@ -450,7 +457,18 @@ class SliceRenderer {
        (aorta voxels within 3 mm of the LV cavity), the RA, and the epicardial apex (the LV voxel farthest along the
        axis). The target views are planes through these, so they follow the real anatomy. A rotation cannot mirror, so
        the volume must be right-handed: heart-volume.py writes RAS. */
-    const sp = meta.spacing_mm, toW = mm => add(origin, mul(Rv(mm), 0.1)), at = (x, y, z) => labels[x + nx * (y + ny * z)];
+    const sp = meta.spacing_mm, at = (x, y, z) => labels[x + nx * (y + ny * z)];
+    /* The descending aorta (volume mm): the posterior aorta voxels in the lowest 12 mm slab of the aorta label (in RAS,
+       z is superior and y anterior). That slab is the aorta reaching the diaphragmatic hiatus, which lies at the midline.
+       The CT carries no spine, so the heart is slid sideways until this aorta sits there (x = −0.5 cm); the aorta behind
+       the heart then runs 2 to 3 cm left of the midline, as in life. */
+    let dao = null; { let zmin = nz; for (let z = 0; z < nz && zmin === nz; z++) for (let i = z * nx * ny; i < (z + 1) * nx * ny; i++) if (labels[i] === 6) { zmin = z; break; }
+      const z1 = Math.min(nz, zmin + Math.round(12 / sp)); let ymin = ny, n = 0; const c = [0, 0, 0];
+      for (let z = zmin; z < z1; z++) for (let y = 0; y < ny; y++) for (let x = 0; x < nx; x++) if (at(x, y, z) === 6) ymin = Math.min(ymin, y);
+      for (let z = zmin; z < z1; z++) for (let y = ymin; y < Math.min(ny, ymin + Math.round(30 / sp)); y++) for (let x = 0; x < nx; x++) if (at(x, y, z) === 6) { c[0] += x; c[1] += y; c[2] += z; n++; }
+      if (n > 3) dao = c.map(v => v / n * sp); }
+    if (dao && String(meta.axes || '').startsWith('RAS')) { origin[0] += -0.5 - add(origin, mul(Rv(dao), 0.1))[0]; this.vol.raC = raC && add(origin, mul(Rv(meta.centroids_mm['4']), 0.1)); }
+    const toW = mm => add(origin, mul(Rv(mm), 0.1));
     const acc = {}, add1 = (k, x, y, z) => { const a = acc[k] || (acc[k] = [0, 0, 0, 0]); a[0] += x; a[1] += y; a[2] += z; a[3]++; };
     let apexMm = null, apexAlong = -1e9;
     for (let z = 0; z < nz; z++) for (let y = 0; y < ny; y++) for (let x = 0; x < nx; x++) { const l = at(x, y, z);
@@ -463,19 +481,14 @@ class SliceRenderer {
     let ao = null; if (acc.av) { const a = acc.av, avMm = [a[0] / a[3] * sp, a[1] / a[3] * sp, a[2] / a[3] * sp];
       for (let z = 0; z < nz; z++) for (let y = 0; y < ny; y++) for (let x = 0; x < nx; x++) if (at(x, y, z) === 6 && Math.hypot(x * sp - avMm[0], y * sp - avMm[1], z * sp - avMm[2]) < 35) add1('ao', x, y, z);
       ao = cen('ao'); }
-    /* the descending aorta: the posterior aorta voxels in two 12 mm slabs (the lowest, and 45 mm above it; RAS z is
-       superior, y anterior), so the torso's own tube runs along it beyond the volume's edge */
-    let zmin = 1e9; for (let i = 0; i < labels.length; i++) if (labels[i] === 6) zmin = Math.min(zmin, Math.floor(i / (nx * ny)));
-    const slab = (k, z0) => { let ymin = 1e9; const z1 = Math.min(nz, z0 + Math.round(12 / sp));
-      for (let z = z0; z < z1; z++) for (let y = 0; y < ny; y++) for (let x = 0; x < nx; x++) if (at(x, y, z) === 6) ymin = Math.min(ymin, y);
-      for (let z = z0; z < z1; z++) for (let y = 0; y < Math.min(ny, ymin + Math.round(30 / sp)); y++) for (let x = 0; x < nx; x++) if (at(x, y, z) === 6) add1(k, x, y, z);
-      return cen(k); };
-    const d0 = slab('dao0', zmin), d1 = slab('dao1', Math.min(nz - 1, zmin + Math.round(45 / sp)));
-    this.vol.dao = d0 && d1 ? [d0, norm(sub3(d0, d1))] : null;                    // a point and the direction caudally
-    HEART.landmarks = { mv: cen(13), tv: cen(14), av: cen('av'), ao, ra: cen(4) || raC };
+    this.vol.dao = dao ? [toW(dao), [0, 1, 0]] : null;                             // a point; the torso's tube runs straight down from it
+    HEART.landmarks = { mv: cen(13), tv: cen(14), av: cen('av'), ao, ra: cen(4) || raC, rv: meta.centroids_mm['5'] ? toW(meta.centroids_mm['5']) : null };
     /* the torso heart frame follows the volume: base at the mitral valve, apex at the epicardial apex */
+    HEART.centre = toW(lvC);
     HEART.base = HEART.landmarks.mv || toW(add(lvC, mul(axis, -45)));
     HEART.apex = apexMm ? toW(apexMm) : toW(add(lvC, mul(axis, 40)));
+    /* and so does its frame: e3 the LV axis as placed, e1 anterior, e2 completing it */
+    HEART.e3 = norm(Rv(axis)); HEART.e1 = norm(add([0, 0, -1], mul(HEART.e3, -dot([0, 0, -1], HEART.e3)))); HEART.e2 = cross(HEART.e3, HEART.e1);
     return true;
   }
   /* Draw one frame for a pose at a cardiac phase (0..1) and time (s). */
@@ -513,19 +526,29 @@ class SliceRenderer {
 function fitPose(x, y, beam, lat) {
   let best = null;
   const err = (pose) => { const P = planeFor(pose); return (1 - dot(P.beam, beam)) * 3 + (1 - dot(P.lat, lat)); };
-  for (let rot = 0; rot < 360; rot += 6) for (let tilt = -40; tilt <= 70; tilt += 5) for (let rock = -35; rock <= 35; rock += 5) {
+  for (let rot = 0; rot < 360; rot += 6) for (let tilt = -45; tilt <= 85; tilt += 5) for (let rock = -35; rock <= 35; rock += 5) {
     const pose = { x, y, rot, tilt, rock }, e = err(pose); if (!best || e < best.e) best = { e, pose };
   }
   let step = 3;                                                                  // refine
   for (let i = 0; i < 40; i++) { let moved = false;
-    for (const k of ['rot', 'tilt', 'rock']) for (const dlt of [-step, step]) { const pose = { ...best.pose, [k]: best.pose[k] + dlt }; const e = err(pose); if (e < best.e) { best = { e, pose }; moved = true; } }
+    for (const k of ['rot', 'tilt', 'rock']) for (const dlt of [-step, step]) { const pose = { ...best.pose, [k]: best.pose[k] + dlt }; pose.tilt = Math.max(-45, Math.min(85, pose.tilt)); pose.rock = Math.max(-35, Math.min(35, pose.rock)); const e = err(pose); if (e < best.e) { best = { e, pose }; moved = true; } }
     if (!moved) step /= 2; if (step < 0.05) break; }
-  const p = best.pose; p.rot = ((Math.round(p.rot) % 360) + 360) % 360; p.tilt = Math.max(-45, Math.min(70, Math.round(p.tilt))); p.rock = Math.max(-35, Math.min(35, Math.round(p.rock))); return p;   // within the panel's limits
+  fitPose.err = best.e; const p = best.pose; p.rot = ((Math.round(p.rot) % 360) + 360) % 360; p.tilt = Math.max(-45, Math.min(85, Math.round(p.tilt))); p.rock = Math.max(-35, Math.min(35, Math.round(p.rock))); return p;   // within the panel's limits
+}
+/* The apical window: follow the long axis from the valves through the apex until it meets the skin, then move to the
+   middle of that intercostal space (ribs run where y + 0.18|x| is an odd multiple of 1.15 cm; see sdRibs). */
+function apicalWindow(apex, valves) {
+  const d = norm(add(apex, mul(valves, -1))); let p = apex;
+  for (let i = 0; i < 400; i++) { const s = skinPoint(p[0], p[1]).p; if (p[2] <= s[2]) break; p = add(p, mul(d, 0.05)); }
+  const x = Math.max(-14, Math.min(14, p[0])), off = 0.18 * Math.abs(x) + 0.1 * Math.sin(x * 0.5);
+  const y = Math.round((p[1] + off) / 2.3) * 2.3 - off;
+  return [+x.toFixed(1), +Math.max(-2, Math.min(26, y)).toFixed(1)];
 }
 function computeTargets() {
   const { e1, e2, e3, base, apex, centre } = HEART;
-  const rvDir = norm(add(mul(e1, 1.5), mul(e2, 1.7)));                           // towards the RV centre
   const L = HEART.landmarks || {};
+  /* towards the RV centre, square to the long axis */
+  const rvDir = L.rv ? (v => norm(add(v, mul(e3, -dot(v, e3)))))(add(L.rv, mul(centre, -1))) : norm(add(mul(e1, 1.5), mul(e2, 1.7)));
   const mid = (a, b) => mul(add(a, b), 0.5), sub = (a, b) => add(a, mul(b, -1));
   const orth = (v, b) => norm(add(v, mul(b, -dot(v, b))));                       // v made perpendicular to the beam
   const raP = L.ra || add(add(add(centre, mul(e1, 1.2)), mul(e2, 2.4)), mul(e3, -5.9));
@@ -537,15 +560,20 @@ function computeTargets() {
      points fix the plane, so the window is the skin point on it nearest the usual 3rd–4th space. */
   { let x = 3.2, y = 10.7, A = apex, B = base;
     if (L.av && L.ao) { B = L.av; const n = norm(cross(sub(L.av, apex), sub(L.ao, apex))); let best = 1e9;
-      for (let xi = 0; xi <= 8; xi += 0.1) for (let yi = 8; yi <= 13.5; yi += 0.1) { const d = Math.abs(dot(sub(skinPoint(xi, yi).p, apex), n)); const c = d * 10 + Math.hypot(xi - 3.2, yi - 10.7); if (c < best) { best = c; x = +xi.toFixed(1); y = +yi.toFixed(1); } } }
+      for (let xi = 0; xi <= 8; xi += 0.1) for (let yi = 7; yi <= 13.5; yi += 0.1) { const d = Math.abs(dot(sub(skinPoint(xi, yi).p, apex), n)); const c = d * 10 + Math.hypot(xi - 3.2, yi - 10.7); if (c < best) { best = c; x = +xi.toFixed(1); y = +yi.toFixed(1); } } }
     T.plax = { label: 'PLAX', depth: 16, ...view(x, y, A, B, 0.72), hint: 'Left sternal edge, 3rd–4th space, marker to the right shoulder.' }; }
   /* PSAX: same window, plane perpendicular to the long axis at papillary level; RV on screen left */
   { const x = T.plax.x, y = T.plax.y, o = skinPoint(x, y).p; const pap = add(mid(base, apex), mul(e3, 0.8)); const beam = norm(sub(pap, o)); T.psax = { label: 'PSAX', depth: 14, ...fitPose(x, y, beam, orth(mul(rvDir, -1), beam)), hint: 'Same window, rotate 90° clockwise: marker to the left shoulder.' }; }
   /* A4C: from the apex towards the base; the plane holds the apex and both valves; RV on screen left, LV on the right */
-  { const x = 6.8, y = 14.6, o = skinPoint(x, y).p; const mv = L.mv || add(base, mul(rvDir, -1.5)), tv = L.tv || add(base, mul(rvDir, 1.5));
+  { const [x, y] = L.mv && L.tv ? apicalWindow(apex, mid(L.mv, L.tv)) : [6.8, 14.6], o = skinPoint(x, y).p; const mv = L.mv || add(base, mul(rvDir, -1.5)), tv = L.tv || add(base, mul(rvDir, 1.5));
     const beam = norm(sub(mid(mv, tv), o)); T.a4c = { label: 'A4C', depth: 16, ...fitPose(x, y, beam, orth(sub(mv, tv), beam)), hint: 'Point of maximal impulse, marker to the patient’s left, beam to the right shoulder.' }; }
   /* Subcostal 4C: below the xiphoid, through the liver; RV nearest the probe, apex on screen right, atria on the left */
-  { const valves = L.mv && L.tv ? mid(L.mv, L.tv) : base; T.sc4c = { label: 'Subcostal 4C', depth: 20, ...view(0.8, 22.5, valves, apex), hint: 'Just below the xiphoid, flatten the probe, marker to the patient’s left.' }; }
+  /* the plane holds the valves and the mid LV (the apex lies against the chest wall, so a plane through it from below
+     the xiphoid would leave the body; the subcostal view foreshortens the apex in life too); the window is the point
+     below the xiphoid from which that plane is reachable within the tilt and rock limits */
+  { const valves = L.mv && L.tv ? mid(L.mv, L.tv) : base; let best = null;
+    for (const x of [-1, 0, 1, 2, 3]) for (const y of [20.5, 21.5, 22.5]) { const pose = view(x, y, valves, mid(centre, apex)), e = fitPose.err + 0.01 * Math.hypot(x - 0.8, y - 22); if (!best || e < best.e) best = { e, pose }; }
+    T.sc4c = { label: 'Subcostal 4C', depth: 20, ...best.pose, hint: 'Just below the xiphoid, flatten the probe, marker to the patient’s left.' }; }
   /* IVC: subcostal, sagittal plane along the IVC into the RA; marker to the head puts the RA on screen right */
   { const x = +Math.max(-4, Math.min(1, raP[0] + 1.0)).toFixed(1), y = 20.0, o = skinPoint(x, y).p; const ivcMid = add(raP, [-0.3, 7.0, 1.2]); const beam = norm(sub(ivcMid, o));
     T.ivc = { label: 'IVC', depth: 20, ...fitPose(x, y, beam, orth([0, -1, 0], beam)), hint: 'From subcostal, rotate the marker to the head: a sagittal plane through the IVC into the RA.' }; }

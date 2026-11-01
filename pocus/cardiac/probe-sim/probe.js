@@ -24,7 +24,7 @@ class ProbePanel {
   /* cm ↔ canvas px */
   toPx(x, y) { return [(x - VIEW.x0) / (VIEW.x1 - VIEW.x0) * this.W, (y - VIEW.y0) / (VIEW.y1 - VIEW.y0) * this.H]; }
   toCm(px, py) { return [VIEW.x0 + px / this.W * (VIEW.x1 - VIEW.x0), VIEW.y0 + py / this.H * (VIEW.y1 - VIEW.y0)]; }
-  set(partial) { Object.assign(this.pose, partial); this.pose.x = Math.max(-14, Math.min(14, this.pose.x)); this.pose.y = Math.max(-2, Math.min(26, this.pose.y)); this.pose.tilt = Math.max(-45, Math.min(70, this.pose.tilt)); this.pose.rock = Math.max(-35, Math.min(35, this.pose.rock)); this.pose.rot = ((this.pose.rot % 360) + 360) % 360; this.draw(); this.onChange(this.pose); }
+  set(partial) { Object.assign(this.pose, partial); this.pose.x = Math.max(-14, Math.min(14, this.pose.x)); this.pose.y = Math.max(-2, Math.min(26, this.pose.y)); this.pose.tilt = Math.max(-45, Math.min(85, this.pose.tilt)); this.pose.rock = Math.max(-35, Math.min(35, this.pose.rock)); this.pose.rot = ((this.pose.rot % 360) + 360) % 360; this.draw(); this.onChange(this.pose); }
 
   bind() {
     const cv = this.cv; let drag = null, pinch = null;
@@ -70,10 +70,15 @@ class ProbePanel {
       g.strokeStyle = 'rgba(255,255,255,.55)'; g.lineWidth = 2; g.lineCap = 'round';
       g.fillStyle = 'rgba(255,255,255,.32)'; g.fillRect(P(-1.6, 1.5)[0], P(0, 1.5)[1], P(1.6, 0)[0] - P(-1.6, 0)[0], P(0, 19)[1] - P(0, 1.5)[1]);
       for (let i = 0; i < 8; i++) { const y = 2.6 + i * 2.3; for (const s of [-1, 1]) { g.beginPath(); g.moveTo(...P(s * 1.6, y)); g.quadraticCurveTo(...P(s * 8, y + 0.9), ...P(s * 15, y + 3.4)); g.stroke(); } }
-      g.fillStyle = 'rgba(80,40,30,.7)'; g.font = '10px Inter, Arial, sans-serif'; g.fillText('R', 6, H - 6); g.fillText('L', W - 12, H - 6); g.fillText('Head', W / 2 - 12, 11);
+      g.fillStyle = 'rgba(80,40,30,.7)'; g.font = '12px Inter, Arial, sans-serif'; g.fillText('R', 6, H - 6); g.fillText('L', W - 12, H - 6); g.fillText('Head', W / 2 - 12, 11);
     }
     /* heart outline faintly, so the learner can relate the probe to the organ */
-    g.strokeStyle = 'rgba(99,61,60,.35)'; g.lineWidth = 1.2; g.beginPath(); g.ellipse(...P(4.2, 9.6), 5.6 * W / 40, 4.6 * H / 30, 45 * D2R, 0, Math.PI * 2); g.stroke();
+    /* it follows the simulator's heart (base to apex) when one is loaded */
+    const Hh = window.ProbeSim && window.ProbeSim.HEART;
+    let hc = [4.2, 9.6], ha = 45 * D2R, hl = 5.6;
+    if (Hh && Hh.base && Hh.apex) { const [bx, by] = P(Hh.base[0], Hh.base[1]), [ax, ay] = P(Hh.apex[0], Hh.apex[1]);
+      hc = [(Hh.base[0] + Hh.apex[0]) / 2, (Hh.base[1] + Hh.apex[1]) / 2]; ha = Math.atan2(ay - by, ax - bx); hl = Math.hypot(ax - bx, ay - by) / 2 / (W / 40) + 1.5; }
+    g.strokeStyle = 'rgba(99,61,60,.35)'; g.lineWidth = 1.2; g.beginPath(); g.ellipse(...P(hc[0], hc[1]), hl * W / 40, 4.6 * H / 30, ha, 0, Math.PI * 2); g.stroke();
     /* the probe */
     const [px, py] = P(this.pose.x, this.pose.y); const a = -this.pose.rot * D2R;   // screen rotation: 0 → patient's right (screen left)
     g.save(); g.translate(px, py); g.rotate(a + Math.PI);
@@ -85,7 +90,7 @@ class ProbePanel {
     g.fillStyle = '#d97706'; g.beginPath(); g.arc(19 * sc, 0, 3.6 * sc, 0, Math.PI * 2); g.fill();                     // marker
     /* tilt and rock shown as a small arrow pair */
     g.restore();
-    g.fillStyle = 'rgba(39,39,34,.85)'; g.font = '11px ui-monospace, monospace';
+    g.fillStyle = 'rgba(39,39,34,.85)'; g.font = '12px ui-monospace, monospace';
     const txt = `x ${this.pose.x.toFixed(1)}  y ${this.pose.y.toFixed(1)}  ${clock(this.pose.rot)}  tilt ${Math.round(this.pose.tilt)}°  rock ${Math.round(this.pose.rock)}°`;
     g.fillText(txt, 6, H - 20);
   }
