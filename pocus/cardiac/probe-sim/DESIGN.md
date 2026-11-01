@@ -101,17 +101,26 @@ the torso, ribs, lung, liver and IVC stay analytic. `?novol` on the dev page fal
 - Build: `python3 -I tools/heart-volume.py 1.img.nii.gz pocus/cardiac/probe-sim/volume --spacing 1.5`. The tool
   reorients to RAS first: the source files are LAS (a mirror image), and the renderer places the volume with a pure
   rotation, which cannot undo a mirror.
-- Placement (`SliceRenderer.loadVolume`): the LV long axis maps onto `HEART.e3` and the LV→RV direction onto the torso
-  RV direction; the LV centre sits at the torso heart centre. Landmarks are then read off the labels (mitral and
-  tricuspid valve centres, aortic annulus and root, RA, epicardial apex, descending aorta) and the torso's IVC and
-  descending aorta are run through them.
+- Placement (`SliceRenderer.loadVolume`, since 1 Nov 2026): the volume goes in as it was scanned, supine (torso
+  x = −R, y = −S, z = −A), so the heart keeps its real tilt and the structures around it stay on their own sides. The
+  CT has no spine, so the heart is slid sideways until the aorta's lowest slab (where it reaches the diaphragmatic
+  hiatus) sits at the midline; the aorta behind the heart then runs 2 to 3 cm left of it. `HEART` (centre, base,
+  apex, e1–e3) then follows the volume. Landmarks are read off the labels (mitral and tricuspid valve centres, aortic
+  annulus and root, RA, RV, epicardial apex, descending aorta) and the torso's IVC and descending aorta are run
+  through them. A volume not in RAS (the synthetic test one) still has its LV axis put on `HEART.e3` and its LV→RV
+  direction on the torso RV direction. (First release, 1 Nov: that rotation for the real heart too; it tipped this
+  case's descending aorta to the right of the midline, because this heart lies about 30° flatter than the torso's
+  parametric axis.)
 - Targets (`computeTargets`) are planes through those landmarks: PLAX holds the apex, aortic valve and aortic root (the
   window is the skin point on that plane nearest the 3rd–4th space); PSAX is perpendicular to the long axis at
-  papillary level from the same window; A4C holds the apex and both valves; subcostal holds the valves and the apex;
-  IVC is sagittal along the IVC into the RA. Fitted poses stay within the slider limits.
-- Known gaps: this case's LV axis is about 30° more horizontal than the torso's heart axis, so the rotation swings the
-  descending aorta just right of the midline; the posterior mediastinum box and lung bases still draw straight pleural
-  lines in PLAX, PSAX and IVC; the subcostal and IVC liver windows are thinner than in life. `?debug=3` colours each
+  papillary level from the same window; A4C holds the apex and both valves, from the window where the long axis meets
+  the skin, centred in its intercostal space; subcostal holds the valves and the mid LV (this apex lies against the
+  chest wall, so a plane through it from below the xiphoid would leave the body), from the window below the xiphoid
+  that reaches it within the limits; IVC is sagittal along the IVC into the RA. Fitted poses stay within the slider
+  limits (tilt −45° to 85°, raised from 70° so the probe can lie nearly flat for subcostal views; rock ±35°).
+- Known gaps: PSAX sits at the −45° tilt limit; a small wedge at the right of the subcostal sector is outside the body
+  (the chest model has no abdominal wall to press into); the posterior mediastinum box and lung bases still draw
+  straight pleural lines in PLAX, PSAX and IVC; the liver windows are thinner than in life. `?debug=3` colours each
   chamber (LV red, RV blue, LA orange, RA cyan, aorta yellow, PA violet).
 
 ## Calibration
