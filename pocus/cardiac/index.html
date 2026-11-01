@@ -1628,12 +1628,22 @@ function setPaused(p) { PAUSED = p; $$('.mot').forEach(b => { b.textContent = p 
 document.addEventListener('click', e => { const b = e.target.closest('.mot'); if (b) setPaused(!PAUSED); });
 
 /* ---------- cardiac cycle: ph 0 = QRS / end-diastole ---------- */
+/* The cardiac cycle, phase 0 at the QRS, timed as a normal adult LV at rest (Wiggers):
+   isovolumic contraction 0–0.06, ejection 0.06–0.38 (fast early, then slowing), isovolumic relaxation 0.38–0.46,
+   rapid filling 0.46–0.62 (about 75% of filling, the E wave), diastasis 0.62–0.84, atrial contraction 0.84–0.98
+   (the A wave, the last 20%). c is how far the ventricles have emptied (0 end-diastole, 1 end-systole); la how full
+   the atria are (they fill while the ventricles eject and empty in early diastole and with the atrial kick). */
+const CDF = (a, b) => { const n = 64, t = []; let acc = 0; for (let i = 0; i <= n; i++) { const x = i / n; acc += i ? Math.pow(x, a) * Math.pow(1 - x, b) : 0; t.push(acc); } return x => { const f = clamp(x, 0, 1) * n, i = Math.floor(f); return (i >= n ? t[n] : lerp(t[i], t[i + 1], f - i)) / t[n]; }; };
+const EJECT = CDF(.7, 1.5), EFILL = CDF(.8, 1.6), AFILL = CDF(1.2, 1.2);
 function cyc(ph) {
   ph = ((ph % 1) + 1) % 1;
-  const c = ph < .32 ? smooth(ph / .32) : ph < .46 ? 1 - smooth((ph - .32) / .14) : 0;
-  const mv = bump(ph, .58, .1) + .6 * bump(ph, .88, .07);
-  const av = (ph > .05 && ph < .34) ? Math.pow(Math.sin(Math.PI * (ph - .05) / .29), .35) : 0;
-  return { ph, c, mv, av };
+  const c = ph < .06 ? 0 : ph < .38 ? EJECT((ph - .06) / .32) : ph < .46 ? 1
+    : ph < .62 ? 1 - .75 * EFILL((ph - .46) / .16) : ph < .84 ? .25 - .05 * (ph - .62) / .22 : ph < .98 ? .2 * (1 - AFILL((ph - .84) / .14)) : 0;
+  const la = ph < .06 ? .05 : ph < .46 ? .05 + .95 * smooth((ph - .06) / .4) : ph < .62 ? 1 - .7 * EFILL((ph - .46) / .16) : ph < .84 ? .3 + .1 * (ph - .62) / .22 : ph < .98 ? .4 - .35 * AFILL((ph - .84) / .14) : .05;
+  const mv = ph < .46 ? 0 : ph < .62 ? Math.sin(Math.PI * Math.min(1, (ph - .46) / .1) / 2) * (ph < .56 ? 1 : 1 - .65 * smooth((ph - .56) / .06))
+    : ph < .84 ? .35 : .35 + .55 * bump(ph, .91, .07) - .35 * smooth((ph - .93) / .05);
+  const av = (ph > .06 && ph < .38) ? Math.pow(Math.sin(Math.PI * (ph - .06) / .32), .35) : 0;
+  return { ph, c, mv: Math.max(0, mv), av, la };
 }
 function raInv(ph) { const d = ((ph - .82) % 1 + 1) % 1; return d < .4 ? Math.sin(Math.PI * d / .4) : 0; }
 function ecgV(ph) {
@@ -1666,15 +1676,15 @@ class Sono {
     this.dpr = Math.min(2, window.devicePixelRatio || 1);
     cv.width = Math.round(this.W * this.dpr); cv.height = Math.round(this.H * this.dpr);
     this.g = cv.getContext('2d');
-    this.map = document.createElement('canvas'); this.map.width = this.W; this.map.height = this.H;
+    this.map = document.createElement('canvas'); this.map.width = cv.width; this.map.height = cv.height;
     this.mg = this.map.getContext('2d', { willReadFrequently: true });
     this.img = this.g.createImageData(cv.width, cv.height);
-    /* scatterers on the beam lines: radial step 2.1 px, lateral spacing about 2.4 px, jittered */
-    const ax = this.W / 2, ay = 12, R = this.H - 22, a = this.ang, r0 = rnd(4242), X = [], Y = [], Am = [], U = [];
-    for (let r = 2; r < R; r += 2.0) {
-      const n = Math.max(1, Math.round(2 * a * r / 2.0));
+    /* scatterers on the beam lines, in device pixels: radial step and lateral spacing about 1.7 device px, jittered */
+    const dd = this.dpr, ax = this.W / 2 * dd, ay = 12 * dd, R = (this.H - 22) * dd, a = this.ang, r0 = rnd(4242), X = [], Y = [], Am = [], U = [], st = 1.7;
+    for (let r = 2; r < R; r += st) {
+      const n = Math.max(1, Math.round(2 * a * r / st));
       for (let i = 0; i < n; i++) {
-        const th = -a + (i + r0()) * 2 * a / n, rr = r + (r0() - .5) * 2.0;
+        const th = -a + (i + r0()) * 2 * a / n, rr = r + (r0() - .5) * st;
         X.push(ax + rr * Math.sin(th)); Y.push(ay + rr * Math.cos(th));
         Am.push(.55 + .9 * r0()); U.push(r0());
       }
@@ -1685,7 +1695,7 @@ class Sono {
     const g = this.mg, gf = 1;
     const col = l => { const v = Math.round(clamp(l * gf, 0, 1) * 255); return `rgb(${v},${v},${v})`; };
     const pth = (p, close) => { g.beginPath(); g.moveTo(p[0][0], p[0][1]); for (let i = 1; i < p.length; i++) g.lineTo(p[i][0], p[i][1]); if (close) g.closePath(); };
-    const tp = (x, y) => { const p = g.getTransform().transformPoint(new DOMPoint(x, y)); return [p.x, p.y]; };
+    const tp = (x, y) => { const p = g.getTransform().transformPoint(new DOMPoint(x, y)); return [p.x / this.dpr, p.y / this.dpr]; };
     return {
       g, col, pth, tp,
       fill(l) { g.fillStyle = col(l); g.fillRect(-40, -5, 80, 70); },
@@ -1703,7 +1713,7 @@ class Sono {
     const ax = W / 2, ay = 12, R = H - 22, a = this.ang;
     const gain = (S.gain == null ? 50 : S.gain) / 100, gf = .55 + gain * .9;
     /* 1. tissue map, off screen, in CSS pixels */
-    mg.setTransform(1, 0, 0, 1, 0, 0); mg.globalCompositeOperation = 'source-over'; mg.globalAlpha = 1;
+    mg.setTransform(d, 0, 0, d, 0, 0); mg.globalCompositeOperation = 'source-over'; mg.globalAlpha = 1;
     mg.fillStyle = '#000'; mg.fillRect(0, 0, W, H);
     mg.save();
     mg.beginPath(); mg.moveTo(ax, ay); mg.arc(ax, ay, R, Math.PI / 2 - a, Math.PI / 2 + a); mg.closePath(); mg.clip();
@@ -1713,19 +1723,19 @@ class Sono {
     A.fill(S.bg == null ? .22 : S.bg);
     view(A, S, tm, P);
     mg.restore();
-    const M = mg.getImageData(0, 0, W, H).data;
+    const M = mg.getImageData(0, 0, this.map.width, this.map.height).data;
     /* 2. dots */
     const im = this.img, o = im.data, CW = this.cv.width, CH = this.cv.height, sc = this.sc;
     o.fill(0); for (let i = 3; i < o.length; i += 4) o[i] = 255;
-    const flick = Math.floor(tm * 30);
+    const flick = Math.floor(tm * 12);
     for (let i = 0; i < sc.n; i++) {
-      const x = sc.X[i], y = sc.Y[i], e = M[((y | 0) * W + (x | 0)) * 4] / 255;
+      const x = sc.X[i], y = sc.Y[i], e = M[((y | 0) * CW + (x | 0)) * 4] / 255;
       if (e < .004) continue;
       /* blood (very low echogenicity) flickers from frame to frame; tissue holds still */
       const u = e < .08 ? hsh(i * 7 + flick) : sc.U[i];
-      const v = e * gf * sc.A[i] * (1 - .35 * Math.pow(Math.abs(Math.atan2(x - ax, y - ay)) / a, 6));
+      const v = e * gf * sc.A[i] * (1 - .35 * Math.pow(Math.abs(Math.atan2(x - ax * d, y - ay * d)) / a, 6));
       if (u > Math.min(1, v * v * 1.9 + v * .35)) continue;
-      const q = Math.min(1, v * 1.1), r = d * (.45 + .8 * q), b = 95 + 160 * q, px = x * d, py = y * d, rr = Math.ceil(r);
+      const q = Math.min(1, v * 1.1), r = .55 + .75 * q, b = 95 + 160 * q, px = x, py = y, rr = Math.ceil(r);
       for (let oy = -rr; oy <= rr; oy++) for (let ox = -rr; ox <= rr; ox++) {
         const qx = (px + ox) | 0, qy = (py + oy) | 0; if (qx < 0 || qy < 0 || qx >= CW || qy >= CH) continue;
         const f = 1 - (ox * ox + oy * oy) / ((r + .5) * (r + .5)); if (f <= 0) continue;
@@ -1796,7 +1806,8 @@ function plaxAt(S, Y, x) {
   const k = x > -4.5 ? 1 : clamp(1 - Math.pow((-4.5 - x) / 7.5, 2), .06, 1);
   const ak = S.lad ? smooth((-1.4 - x) / 2.2) : 0;
   const Dt = lerp(Y.D, S.lvd, ak * .88);
-  const sEndo = Y.yc - k * Dt / 2, pEndo = Y.yc + k * Y.D / 2;
+  /* the posterior wall travels further than the septum in systole (about 60:40) */
+  const sEndo = Y.yc - k * (S.lvd / 2 - .4 * (S.lvd - Dt)), pEndo = Y.yc + k * (S.lvd / 2 - .6 * (S.lvd - Y.D));
   const Ws = S.wall * (1 + S.thick * Y.c * (1 - ak)), Wp = S.wall * (1 + S.thick * Y.c);
   return { sEndo, sEpi: sEndo - Ws, pEndo, pEpi: pEndo + Wp };
 }
@@ -1893,7 +1904,7 @@ function psaxRing(S, P, yc) {
   return { inner, outer, rr, D };
 }
 function vPSAX(A, S, tm, P) {
-  const g = A.g, c = P.c, yc = 7.3;
+  const g = A.g, c = P.c, yc = 7.3 - .25 * c;   /* the heart moves slightly anteriorly in systole */
   chestWall(A);
   g.save(); g.translate(S.dx, 0);
   if (S.swing) g.translate(.25 * Math.sin(TAU * tm * S.hr / 120), .5 * Math.sin(TAU * tm * S.hr / 120));
@@ -1910,7 +1921,7 @@ function vPSAX(A, S, tm, P) {
   const pa = 1 - S.mitral;
   if (pa > 0) {
     g.globalAlpha = pa;
-    for (const th of [.62, 2.45]) { const i = Math.round((th + Math.PI) / TAU * 72) % 72, r = R.rr[i] * .6; A.el(r * Math.cos(th), yc + r * Math.sin(th), .5 * (1 + .25 * c), .38 * (1 + .25 * c), .52, th); }
+    for (const th0p of [.62, 2.45]) { const th = th0p + .14 * c, i = Math.round((th + Math.PI) / TAU * 72) % 72, r = R.rr[i] * .6; A.el(r * Math.cos(th), yc + r * Math.sin(th), .5 * (1 + .25 * c), .38 * (1 + .25 * c), .52, th); }
     g.globalAlpha = 1;
   }
   if (S.mitral > 0) {
@@ -1972,7 +1983,7 @@ function heart4(A, S, tm, P, o = {}) {
       const w = hw * (1 + (Math.cos(th) > 0 ? bulgeR : bulgeL) * Math.sin(th));
       const kk = Math.cos(th) < 0 ? k : 1; pts.push([cx + w * Math.cos(th) * kk, y0 + depth * Math.pow(Math.sin(th), .55)]); }
     return pts; };
-  const laD = 3.7 * (1 + .08 * c), raD = 3.5 * rab * (1 + .05 * c);
+  const laD = 3.5 * (1 + .1 * P.la), raD = 3.3 * rab * (1 + .08 * P.la);
   const la = bowl(xs + .05, xs + W - .05, Lb, laD, .08, .18);
   const raX0 = -xs - .88 * Wrd - .12 * Wrd - .1, ra = bowl(raX0 - .3 * (rab - 1) * 2, -xs - .05, yRb, raD, .22 * rab, .05, inv * .6);
   const laC = [xs + W * .5, Lb + laD * .55], raC = [(raX0 - xs) / 2, yRb + raD * .55];
@@ -2515,8 +2526,8 @@ viewSlide('vRF', 'vRFt', 'vRFc', [
       lines: st.cur === 'mv' ? [{ y: tt => { const v = q(tt); return plaxLeaf(S, v.P, v.Y).tip[1]; }, w: S.ms ? 4 : 2.2, l: .9 }, { y: tt => { const v = q(tt); return plaxLeaf(S, v.P, v.Y).ptip[1]; }, w: 1.8, l: .8 }] : [],
       over(g, X, Y) {
         if (!st.num || st.chal) return;
-        if (st.cur === 'mv') { const tE = lastAt(tm, hr, .58, 1), v = at(tE); calV(g, X(tE), Y(v.g.sEndo), Y(plaxLeaf(S, v.P, v.Y).tip[1]), 'EPSS ' + Math.round(S.epss * 10) + ' mm'); }
-        else { const tD = lastAt(tm, hr, 0, 1), tS = tD + .32 * 60 / hr, a = at(tD), b = at(tS); calV(g, X(tD), Y(a.g.sEndo), Y(a.g.pEndo), 'LVIDd', -1); calV(g, X(tS), Y(b.g.sEndo), Y(b.g.pEndo), 'LVIDs'); }
+        if (st.cur === 'mv') { const tE = lastAt(tm, hr, .54, 1), v = at(tE); calV(g, X(tE), Y(v.g.sEndo), Y(plaxLeaf(S, v.P, v.Y).tip[1]), 'EPSS ' + Math.round(S.epss * 10) + ' mm'); }
+        else { const tD = lastAt(tm, hr, 0, 1), tS = tD + .41 * 60 / hr, a = at(tD), b = at(tS); calV(g, X(tD), Y(a.g.sEndo), Y(a.g.pEndo), 'LVIDd', -1); calV(g, X(tS), Y(b.g.sEndo), Y(b.g.pEndo), 'LVIDs'); }
       }
     };
     strip.render(tm, sp);
@@ -2581,11 +2592,11 @@ viewSlide('vRF', 'vRFt', 'vRFc', [
     strip.render(tm, {
       top: 7, bot: 15, bg: .35,
       bands: [{ a: tt => ya(tt) - 3.4, b: tt => ya(tt) - .3, l: .03 }, { a: tt => ya(tt) - .3, b: tt => ya(tt) + .35, l: .95 }, { a: tt => ya(tt) + .35, b: tt => ya(tt) + 1.1, l: .45 }, { a: tt => ya(tt) + 1.1, b: () => 15, l: .04 }],
-      over(g, X, Y) { if (hide || S.fixPh != null) return; const tD = lastAt(tm, hr, 0, 1), tS = tD + .32 * 60 / hr; calV(g, X(tS), Y(y0), Y(y0 - S.tapse), `TAPSE ${Math.round(S.tapse * 10)} mm`, -1); }
+      over(g, X, Y) { if (hide || S.fixPh != null) return; const tD = lastAt(tm, hr, 0, 1), tS = tD + .41 * 60 / hr; calV(g, X(tS), Y(y0), Y(y0 - S.tapse), `TAPSE ${Math.round(S.tapse * 10)} mm`, -1); }
     });
   }
   seg('s5Sc', d => { if (st.quiz) { st.quiz = null; $('#s5Hide').checked = false; $('#s5Ans').hidden = true; } st.k = +d.v; apply(); });
-  seg('s5Frz', d => { st.frz = d.v === 'dia' ? .95 : d.v === 'sys' ? .3 : null; apply(); });
+  seg('s5Frz', d => { st.frz = d.v === 'dia' ? .99 : d.v === 'sys' ? .42 : null; apply(); });
   function quizRound() {
     let k; do { k = Math.floor(Math.random() * 4); } while (st.quiz && k === st.quiz.k);
     st.quiz = { k, done: false }; st.k = k; segSet('s5Sc', -1); apply();
