@@ -1655,19 +1655,37 @@ const STREAK = (() => {
 })();
 const hsh = i => { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
 
-/* ---------- sector renderer ---------- */
+/* ---------- sector renderer ----------
+   The view functions draw a grey tissue map (echogenicity 0 to 1) off screen. The screen is then stippled with
+   monochrome dots from a fixed field of scatterers laid out along the beam lines: the brighter the tissue, the more of
+   them show and the larger they are, so blood is near black with a few faint, flickering dots, myocardium a mid-grey
+   stipple and pericardium a dense bright band. */
 class Sono {
   constructor(cv, o = {}) {
     this.cv = cv; this.W = o.w || 420; this.H = o.h || 330; this.ang = (o.ang || 42) * D2R;
     this.dpr = Math.min(2, window.devicePixelRatio || 1);
     cv.width = Math.round(this.W * this.dpr); cv.height = Math.round(this.H * this.dpr);
-    this.g = cv.getContext('2d'); this.pat = this.g.createPattern(NOISE, 'repeat');
+    this.g = cv.getContext('2d');
+    this.map = document.createElement('canvas'); this.map.width = this.W; this.map.height = this.H;
+    this.mg = this.map.getContext('2d', { willReadFrequently: true });
+    this.img = this.g.createImageData(cv.width, cv.height);
+    /* scatterers on the beam lines: radial step 2.1 px, lateral spacing about 2.4 px, jittered */
+    const ax = this.W / 2, ay = 12, R = this.H - 22, a = this.ang, r0 = rnd(4242), X = [], Y = [], Am = [], U = [];
+    for (let r = 2; r < R; r += 2.0) {
+      const n = Math.max(1, Math.round(2 * a * r / 2.0));
+      for (let i = 0; i < n; i++) {
+        const th = -a + (i + r0()) * 2 * a / n, rr = r + (r0() - .5) * 2.0;
+        X.push(ax + rr * Math.sin(th)); Y.push(ay + rr * Math.cos(th));
+        Am.push(.55 + .9 * r0()); U.push(r0());
+      }
+    }
+    this.sc = { n: X.length, X: Float32Array.from(X), Y: Float32Array.from(Y), A: Float32Array.from(Am), U: Float32Array.from(U) };
   }
   api(labs, ol) {
-    const g = this.g, gf = this.gf, d = this.dpr;
+    const g = this.mg, gf = 1;
     const col = l => { const v = Math.round(clamp(l * gf, 0, 1) * 255); return `rgb(${v},${v},${v})`; };
     const pth = (p, close) => { g.beginPath(); g.moveTo(p[0][0], p[0][1]); for (let i = 1; i < p.length; i++) g.lineTo(p[i][0], p[i][1]); if (close) g.closePath(); };
-    const tp = (x, y) => { const p = g.getTransform().transformPoint(new DOMPoint(x, y)); return [p.x / d, p.y / d]; };
+    const tp = (x, y) => { const p = g.getTransform().transformPoint(new DOMPoint(x, y)); return [p.x, p.y]; };
     return {
       g, col, pth, tp,
       fill(l) { g.fillStyle = col(l); g.fillRect(-40, -5, 80, 70); },
@@ -1681,30 +1699,48 @@ class Sono {
     };
   }
   render(S, view, tm, P) {
-    const g = this.g, W = this.W, H = this.H, d = this.dpr;
-    g.setTransform(d, 0, 0, d, 0, 0); g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
-    g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+    const g = this.g, W = this.W, H = this.H, d = this.dpr, mg = this.mg;
     const ax = W / 2, ay = 12, R = H - 22, a = this.ang;
-    const gain = (S.gain == null ? 50 : S.gain) / 100; this.gf = .62 + gain * .76;
-    g.save();
-    g.beginPath(); g.moveTo(ax, ay); g.arc(ax, ay, R, Math.PI / 2 - a, Math.PI / 2 + a); g.closePath(); g.clip();
+    const gain = (S.gain == null ? 50 : S.gain) / 100, gf = .55 + gain * .9;
+    /* 1. tissue map, off screen, in CSS pixels */
+    mg.setTransform(1, 0, 0, 1, 0, 0); mg.globalCompositeOperation = 'source-over'; mg.globalAlpha = 1;
+    mg.fillStyle = '#000'; mg.fillRect(0, 0, W, H);
+    mg.save();
+    mg.beginPath(); mg.moveTo(ax, ay); mg.arc(ax, ay, R, Math.PI / 2 - a, Math.PI / 2 + a); mg.closePath(); mg.clip();
     const s = R / S.depth;
-    g.translate(ax, ay); g.scale(s, s); if (S.mirror) g.scale(-1, 1);
+    mg.translate(ax, ay); mg.scale(s, s); if (S.mirror) mg.scale(-1, 1);
     const labs = [], ol = [], A = this.api(labs, ol);
-    A.fill(S.bg == null ? .3 : S.bg);
+    A.fill(S.bg == null ? .22 : S.bg);
     view(A, S, tm, P);
-    g.setTransform(d, 0, 0, d, 0, 0); g.globalAlpha = 1;
-    g.globalCompositeOperation = 'multiply'; g.fillStyle = this.pat; g.fillRect(0, 0, W, H);
-    if (gain > .75) { g.globalCompositeOperation = 'screen'; g.globalAlpha = Math.min(.62, (gain - .75) * 2.4); g.fillRect(0, 0, W, H); g.globalAlpha = 1; }
-    g.globalCompositeOperation = 'source-over';
-    if (gain < .25) { g.fillStyle = `rgba(0,0,0,${(.25 - gain) * 2.4})`; g.fillRect(0, 0, W, H); }
-    g.restore();
+    mg.restore();
+    const M = mg.getImageData(0, 0, W, H).data;
+    /* 2. dots */
+    const im = this.img, o = im.data, CW = this.cv.width, CH = this.cv.height, sc = this.sc;
+    o.fill(0); for (let i = 3; i < o.length; i += 4) o[i] = 255;
+    const flick = Math.floor(tm * 30);
+    for (let i = 0; i < sc.n; i++) {
+      const x = sc.X[i], y = sc.Y[i], e = M[((y | 0) * W + (x | 0)) * 4] / 255;
+      if (e < .004) continue;
+      /* blood (very low echogenicity) flickers from frame to frame; tissue holds still */
+      const u = e < .08 ? hsh(i * 7 + flick) : sc.U[i];
+      const v = e * gf * sc.A[i] * (1 - .35 * Math.pow(Math.abs(Math.atan2(x - ax, y - ay)) / a, 6));
+      if (u > Math.min(1, v * v * 1.9 + v * .35)) continue;
+      const q = Math.min(1, v * 1.1), r = d * (.45 + .8 * q), b = 95 + 160 * q, px = x * d, py = y * d, rr = Math.ceil(r);
+      for (let oy = -rr; oy <= rr; oy++) for (let ox = -rr; ox <= rr; ox++) {
+        const qx = (px + ox) | 0, qy = (py + oy) | 0; if (qx < 0 || qy < 0 || qx >= CW || qy >= CH) continue;
+        const f = 1 - (ox * ox + oy * oy) / ((r + .5) * (r + .5)); if (f <= 0) continue;
+        const val = b * Math.min(1, f * 1.8), j = (qy * CW + qx) * 4;
+        if (val > o[j]) o[j] = o[j + 1] = o[j + 2] = val;
+      }
+    }
+    g.setTransform(1, 0, 0, 1, 0, 0); g.putImageData(im, 0, 0);
+    g.setTransform(d, 0, 0, d, 0, 0); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
     /* overlays */
-    g.font = '10px ui-monospace,Menlo,Consolas,monospace'; g.textBaseline = 'middle';
+    g.font = '12px ui-monospace,Menlo,Consolas,monospace'; g.textBaseline = 'middle';
     g.fillStyle = 'rgba(255,255,255,.5)';
     for (let k = 2; k <= S.depth; k += 2) { const y = ay + k * s; if (y > H - 6) break; g.fillRect(W - 14, y, k % 4 ? 4 : 8, 1); if (k % 4 === 0) g.fillText(String(k), W - 32, y); }
     g.fillStyle = '#ffd678'; g.beginPath(); g.arc(S.mk === 'L' ? ax - 30 : ax + 30, ay + 3, 4, 0, TAU); g.fill();
-    g.font = '10px ui-monospace,Menlo,Consolas,monospace'; g.fillStyle = '#ffd678'; g.fillText('SCHEMATIC · NOT A REAL SCAN', 8, 12);
+    g.font = '12px ui-monospace,Menlo,Consolas,monospace'; g.fillStyle = '#ffd678'; g.fillText('SCHEMATIC · NOT A REAL SCAN', 8, 12);
     if (S.title) { g.fillStyle = 'rgba(255,255,255,.75)'; g.fillText(S.title, 8, 26); }
     if (S.hr && !S.noHR) { g.fillStyle = 'rgba(255,255,255,.55)'; g.fillText(`HR ${Math.round(S.hr)}`, 8, H - 10); }
     for (const [k, x1, y1, x2, y2, t] of ol) {
@@ -1712,10 +1748,10 @@ class Sono {
       if (k === 'dash') { g.setLineDash([4, 4]); g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke(); g.setLineDash([]); }
       else if (k === 'gate') { for (const dy of [-5, 5]) { g.beginPath(); g.moveTo(x1 - 7, y1 + dy); g.lineTo(x1 + 7, y1 + dy); g.stroke(); } }
       else { g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke(); const ang = Math.atan2(y2 - y1, x2 - x1) + Math.PI / 2; for (const [x, y] of [[x1, y1], [x2, y2]]) { g.beginPath(); g.moveTo(x - 5 * Math.cos(ang), y - 5 * Math.sin(ang)); g.lineTo(x + 5 * Math.cos(ang), y + 5 * Math.sin(ang)); g.stroke(); } }
-      if (t) { g.font = '11px ui-monospace,Menlo,Consolas,monospace'; const w = g.measureText(t).width + 8, tx = clamp((x1 + x2) / 2 + 8, 2, W - w - 2), ty = (y1 + y2) / 2; g.fillStyle = 'rgba(0,0,0,.7)'; g.fillRect(tx, ty - 8, w, 16); g.fillStyle = '#ffd24a'; g.fillText(t, tx + 4, ty); }
+      if (t) { g.font = '12px ui-monospace,Menlo,Consolas,monospace'; const w = g.measureText(t).width + 8, tx = clamp((x1 + x2) / 2 + 8, 2, W - w - 2), ty = (y1 + y2) / 2; g.fillStyle = 'rgba(0,0,0,.7)'; g.fillRect(tx, ty - 8, w, 16); g.fillStyle = '#ffd24a'; g.fillText(t, tx + 4, ty); }
     }
     if (S.labels) {
-      g.font = '11px ui-monospace,Menlo,Consolas,monospace'; g.textAlign = 'center';
+      g.font = '12px ui-monospace,Menlo,Consolas,monospace'; g.textAlign = 'center';
       for (const [x, y, t] of labs) { if (x < 0 || x > W || y < 0 || y > H) continue; const w = g.measureText(t).width + 8; g.fillStyle = 'rgba(0,0,0,.62)'; g.fillRect(x - w / 2, y - 8, w, 16); g.fillStyle = '#9fe3ff'; g.fillText(t, x, y); }
       g.textAlign = 'left';
     }
@@ -1928,11 +1964,18 @@ function heart4(A, S, tm, P, o = {}) {
     const wv = Wrd * Math.pow(s, .55) * (1 - kk * c) * (1 - rvcol * bump(s, .55, .45));
     rv.push([-xs - .12 * Wrd * (1 - Math.pow(s, .5)) - .88 * wv, y]);
   }
-  const laC = [xs + W * .5, Lb + 2.05], laR = [W * .47 * (1 + .05 * c), 1.85 * (1 + .08 * c)];
   const rab = S.raBig ? 1.4 : 1, inv = S.tamp ? raInv(P.ph) : 0;
-  const raC = [-xs - Wrd * .42 - .15 * rab, yRb + 1.85 * rab], ra = [];
-  for (let i = 0; i < 40; i++) { const th = i * TAU / 40, k = 1 - inv * .6 * bump(angDiff(th, Math.PI * 1.1), 0, 1.1); ra.push([raC[0] + 1.6 * rab * (1 + .05 * c) * k * Math.cos(th), raC[1] + 1.8 * rab * Math.sin(th) * (th > Math.PI ? k : 1)]); }
-  const la = []; for (let i = 0; i < 40; i++) { const th = i * TAU / 40; la.push([laC[0] + laR[0] * Math.cos(th), laC[1] + laR[1] * Math.sin(th)]); }
+  /* atria hang from their annuli: flat at the valve ring, widest a third of the way down, rounded at the roof (the
+     bottom of the screen), as on a real apical four-chamber; the RA free wall dimples inward with RA inversion */
+  const bowl = (x0, x1, y0, depth, bulgeL, bulgeR, dent = 0) => { const pts = [], n = 36, cx = (x0 + x1) / 2, hw = (x1 - x0) / 2;
+    for (let i = 0; i <= n; i++) { const th = Math.PI * i / n, k = 1 - dent * bump(th, Math.PI * .8, .9);
+      const w = hw * (1 + (Math.cos(th) > 0 ? bulgeR : bulgeL) * Math.sin(th));
+      const kk = Math.cos(th) < 0 ? k : 1; pts.push([cx + w * Math.cos(th) * kk, y0 + depth * Math.pow(Math.sin(th), .55)]); }
+    return pts; };
+  const laD = 3.7 * (1 + .08 * c), raD = 3.5 * rab * (1 + .05 * c);
+  const la = bowl(xs + .05, xs + W - .05, Lb, laD, .08, .18);
+  const raX0 = -xs - .88 * Wrd - .12 * Wrd - .1, ra = bowl(raX0 - .3 * (rab - 1) * 2, -xs - .05, yRb, raD, .22 * rab, .05, inv * .6);
+  const laC = [xs + W * .5, Lb + laD * .55], raC = [(raX0 - xs) / 2, yRb + raD * .55];
   const wl = S.wall * (1 + S.thick * c), wr = S.rvwall;
   /* pericardium halo, effusion, myocardium, blood */
   A.ring(lv, 2 * (wl + S.peri + .16), .9); A.ring(rv, 2 * (wr + S.peri + .16), .9); A.ring(la, 2 * (.3 + S.peri + .14), .85); A.ring(ra, 2 * (.3 + S.peri + .14), .85);
@@ -1941,6 +1984,10 @@ function heart4(A, S, tm, P, o = {}) {
   A.poly([...lv.slice(0, 21), ...rv.slice(0, 21).reverse()], .52);
   if (fs > 0) A.el(xs + .25 * W * (1 - fs * .4) + .2, .15, 1.1 * fs + .01, .8 * fs + .01, .52);
   A.poly(lv, .03); A.poly(rv, .03); A.poly(la, .03); A.poly(ra, .03);
+  /* pulmonary veins opening into the LA roof, and the moderator band across the apical third of the RV */
+  for (const f of [-.28, .3]) A.el(laC[0] + f * W, Lb + laD - .1, .32, .55, .03);
+  { const sM = .38, yM = yRa + sM * (yRb - yRa), fw = rv[20 + Math.round((1 - sM) * 20)] || rv[30];
+    A.line([[-xs - .1, yM + .5], [lerp(-xs, fw[0], .55), yM + .2], [fw[0] + .15, yM]], .2 + .1 * c, .5); }
   if (S.smoke) smokeDots(A, tm, xs + W * .5, Lb * .55, W * .38, Lb * .3);
   if (S.thrombus) { const wob = .12 * Math.sin(tm * 5); A.el(xs + .25 * W + .3 + wob, .95, .75, .55, .58); A.elS(xs + .25 * W + .3 + wob, .95, .75, .55, .1, .85); }
   /* valves */
@@ -2057,7 +2104,7 @@ class Strip {
       g.lineWidth = ln.w || 2; g.strokeStyle = col(ln.l); g.stroke();
     }
     g.globalCompositeOperation = 'multiply'; g.fillStyle = this.pat; g.fillRect(0, 0, W, H); g.globalCompositeOperation = 'source-over';
-    g.font = '10px ui-monospace,Menlo,Consolas,monospace'; g.fillStyle = '#ffd678'; g.textBaseline = 'middle';
+    g.font = '12px ui-monospace,Menlo,Consolas,monospace'; g.fillStyle = '#ffd678'; g.textBaseline = 'middle';
     g.fillText('SCHEMATIC M-MODE', 8, 10);
     sp.over && sp.over(g, X, Y, W, H);
     g.textBaseline = 'alphabetic';
@@ -2067,7 +2114,7 @@ function calV(g, x, y1, y2, t, side = 1) {
   g.strokeStyle = '#ffd24a'; g.fillStyle = '#ffd24a'; g.lineWidth = 1.4;
   g.beginPath(); g.moveTo(x, y1); g.lineTo(x, y2); g.stroke();
   for (const y of [y1, y2]) { g.beginPath(); g.moveTo(x - 5, y); g.lineTo(x + 5, y); g.stroke(); }
-  if (t) { g.font = '11px ui-monospace,Menlo,Consolas,monospace'; const w = g.measureText(t).width + 8, tx = side > 0 ? Math.min(x + 7, 560 - w) : Math.max(2, x - 7 - w); g.fillStyle = 'rgba(0,0,0,.7)'; g.fillRect(tx, (y1 + y2) / 2 - 8, w, 16); g.fillStyle = '#ffd24a'; g.fillText(t, tx + 4, (y1 + y2) / 2); }
+  if (t) { g.font = '12px ui-monospace,Menlo,Consolas,monospace'; const w = g.measureText(t).width + 8, tx = side > 0 ? Math.min(x + 7, 560 - w) : Math.max(2, x - 7 - w); g.fillStyle = 'rgba(0,0,0,.7)'; g.fillRect(tx, (y1 + y2) / 2 - 8, w, 16); g.fillStyle = '#ffd24a'; g.fillText(t, tx + 4, (y1 + y2) / 2); }
 }
 /* time of the most recent completed occurrence of phase ph (hr bpm) */
 function lastAt(tm, hr, ph, back = 0) { const T = 60 / hr, n = Math.floor(tm / T - ph); return (n - back + ph) * T; }
@@ -2622,8 +2669,8 @@ viewSlide('vRF', 'vRFt', 'vRFc', [
     const tAt = x => tm - ((xp - x + EW) % EW) / EW * span;
     if (st.tampOn) {
       for (let x = 0; x < EW; x += 2) { const ph = tAt(x) * hr / 60; if (raInv(ph) > .05) { g.fillStyle = 'rgba(220,90,80,.35)'; g.fillRect(x, 0, 2, EH); } else if (bump(((ph % 1) + 1) % 1, .6, .1) > .1) { g.fillStyle = 'rgba(90,150,230,.35)'; g.fillRect(x, 0, 2, EH); } }
-      g.font = '10px ui-monospace,Menlo,monospace'; g.fillStyle = '#f09080'; g.fillText('■ RA inversion', 8, 12); g.fillStyle = '#80b0f0'; g.fillText('■ RV collapse', 110, 12);
-    } else { g.font = '10px ui-monospace,Menlo,monospace'; g.fillStyle = '#ffd678'; g.fillText('ECG · schematic', 8, 12); }
+      g.font = '12px ui-monospace,Menlo,monospace'; g.fillStyle = '#f09080'; g.fillText('■ RA inversion', 8, 12); g.fillStyle = '#80b0f0'; g.fillText('■ RV collapse', 128, 12);
+    } else { g.font = '12px ui-monospace,Menlo,monospace'; g.fillStyle = '#ffd678'; g.fillText('ECG · schematic', 8, 12); }
     g.strokeStyle = '#5fe08a'; g.lineWidth = 1.6; g.beginPath(); let pen = false;
     for (let x = 0; x < EW; x += 1.5) {
       if (Math.abs(x - xp) < 10) { pen = false; continue; }
@@ -2674,7 +2721,7 @@ viewSlide('vRF', 'vRFt', 'vRFc', [
         const per = I.mode === 'sniff' ? 5 : 60 / I.rr; let tx = tm, tn = tm, mx = 0, mn = 99;
         for (let i = 0; i <= 80; i++) { const t = tm - per * (1 + i / 80); const d = ivcState(I, t).Dm; if (d > mx) { mx = d; tx = t; } if (d < mn) { mn = d; tn = t; } }
         calV(g, X(tx), Y(yc - mx / 2), Y(yc + mx / 2), 'Dmax ' + fixed(mx, 1)); calV(g, X(tn), Y(yc - mn / 2), Y(yc + mn / 2), 'Dmin ' + fixed(mn, 1), -1);
-        g.font = '10px ui-monospace,Menlo,monospace'; g.fillStyle = 'rgba(255,255,255,.65)'; g.textAlign = 'right'; g.fillText(I.mode === 'vent' ? 'ventilator: IVC widens with each breath' : 'inspiration narrows the IVC', 552, 120); g.textAlign = 'left';
+        g.font = '12px ui-monospace,Menlo,monospace'; g.fillStyle = 'rgba(255,255,255,.65)'; g.textAlign = 'right'; g.fillText(I.mode === 'vent' ? 'ventilator: IVC widens with each breath' : 'inspiration narrows the IVC', 552, 120); g.textAlign = 'left';
       }
     });
   }
@@ -2745,7 +2792,7 @@ viewSlide('vRF', 'vRFt', 'vRFc', [
     g.beginPath(); g.moveTo(x0, base); for (let i = 0; i <= 30; i++) { const tau = i / 30 * ET; g.lineTo(x0 + tau / span * W, base + vel(tb + tau) * sc); } g.closePath();
     g.fillStyle = 'rgba(255,210,74,.22)'; g.fill(); g.strokeStyle = '#ffd24a'; g.lineWidth = 1.6; g.stroke();
     g.strokeStyle = 'rgba(255,255,255,.6)'; g.lineWidth = 1; g.beginPath(); g.moveTo(0, base); g.lineTo(W, base); g.stroke();
-    g.font = '10px ui-monospace,Menlo,monospace'; g.fillStyle = 'rgba(255,255,255,.6)'; g.textBaseline = 'middle';
+    g.font = '12px ui-monospace,Menlo,monospace'; g.fillStyle = 'rgba(255,255,255,.6)'; g.textBaseline = 'middle';
     for (const m of [0, 50, 100, 150]) { const y = base + m * sc; g.fillRect(W - 10, y, 6, 1); g.fillText(m ? '−' + (m / 100).toFixed(1) : '0 m/s', W - 46, y); }
     g.fillStyle = '#ffd678'; g.fillText('SCHEMATIC PW DOPPLER', 8, 10);
     g.font = '12px ui-monospace,Menlo,monospace'; g.fillStyle = '#ffd24a'; g.fillText(`VTI ${fixed(v, 1)} cm · HR ${Math.round(hr)}`, Math.max(8, x0 + 6), H - 12);
