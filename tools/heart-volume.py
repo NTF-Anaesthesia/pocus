@@ -40,7 +40,9 @@ def synthetic(spacing):
 
 def load(path, spacing):
     import nibabel as nib
-    im = nib.load(path); lab = np.asarray(im.dataobj).astype(np.uint8)
+    # reorient to RAS (x to the patient's right, y anterior, z superior) so the voxel axes form a right-handed
+    # anatomical frame: scanners often store LAS, a mirror image, which no rotation in the renderer can undo
+    im = nib.as_closest_canonical(nib.load(path)); lab = np.asarray(im.dataobj).astype(np.uint8)
     zooms = np.array(im.header.get_zooms()[:3], np.float32)
     # resample to isotropic spacing with nearest neighbour
     factor = zooms / spacing
@@ -122,6 +124,7 @@ def main():
         'origin_voxel': list(map(int, lo)), 'sdf_range_mm': SDF_RANGE_MM,
         'labels': {0: 'background', 1: 'LV myocardium', 2: 'LA', 3: 'LV', 4: 'RA', 5: 'RV', 6: 'aorta', 7: 'pulmonary artery', 8: 'LA appendage', 9: 'coronary', 10: 'pulmonary veins', 11: 'thin wall', 12: 'vessel wall', 13: 'mitral plane', 14: 'tricuspid plane', 15: 'pericardium', 16: 'epicardial fat'},
         'centroids_mm': centroids, 'lv_centre_mm': la[0] if la else None, 'lv_axis': la[1] if la else None,
+        'axes': 'synthetic' if a.synthetic else 'RAS (x patient right, y anterior, z superior)',
         'source': 'synthetic ellipsoids' if a.synthetic else os.path.basename(a.src),
     }
     json.dump(meta, open(os.path.join(a.out, 'heart-volume.json'), 'w'), indent=1)
